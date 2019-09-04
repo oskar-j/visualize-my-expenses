@@ -7,6 +7,9 @@ class CalculatorBase(object):
     def _verify(self, verbose):
         pass
 
+    def print_to_console(self):
+        pass
+
 
 class Calculator(CalculatorBase):
 
@@ -17,7 +20,17 @@ class Calculator(CalculatorBase):
         pass
 
     def set_rows(self, rows):
+        if rows is None:
+            self.rows = list()
+        else:
+            self.rows = rows
         pass
+
+    def append_rows(self, rows):
+        if self.rows is not None:
+            self.rows += rows
+        else:
+            self.set_rows(rows)
 
 
 class Visualizer(Calculator):
@@ -25,9 +38,10 @@ class Visualizer(Calculator):
     def run(self):
         pass
 
-    def __init__(self, rows=None, **kwargs):
+    def __init__(self, rows=None, currency='USD', **kwargs):
         super(Calculator, self).__init__()
-        pass
+        self.set_rows(rows)
+        self.currency = currency
 
     def create_html(self, filename="plot.html"):
         pass
