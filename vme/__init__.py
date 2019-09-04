@@ -1,2 +1,1 @@
-from vme.calculator import Visualizer
-
+from vme.visualizer import Visualizer
