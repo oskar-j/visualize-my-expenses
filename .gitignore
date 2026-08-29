@@ -105,3 +105,6 @@ venv.bak/
 
 # Output written by usage.py (the checked-in examples are the other files there)
 examples/output/usage-*.png
+
+# uv writes this on `uv sync`; the package is a library, so it is not pinned here
+uv.lock

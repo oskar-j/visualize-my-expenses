@@ -26,7 +26,7 @@ cd visualize-my-expenses
 **uv**
 
 ```bash
-uv sync                       # creates .venv and installs everything, dev tools included
+uv sync                       # creates .venv with the package, both extras and the dev tools
 uv run vme --help
 ```
 

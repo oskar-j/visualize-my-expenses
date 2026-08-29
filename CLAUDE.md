@@ -4,70 +4,79 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`visualize-my-expenses` (package `vme`) — a library that turns a list of budget expenses into a
-Sankey plot (monthly/yearly). Sankey rendering is the whole point of the project: money flows from
-income → categories → labels, so the data model is inherently hierarchical even though the input is
-a flat list of rows.
+`visualize-my-expenses` (package `vme`) — a library and CLI that turns a flat list of budget rows
+into a Sankey diagram, normally shared as a PNG. Sankey rendering is the whole point: money flows
+income → budget hub → categories → labels, so the data model is hierarchical even though the input
+is a flat list.
 
-## State: prototype, mostly stubs
-
-This is a pre-alpha skeleton. **Almost every method body is `pass`.** `vme/tools.py` and
-`vme/plotting.py` are empty files. Do not assume any behavior described by a method name actually
-works — read the body first. Verified current gaps:
-
-- `Visualizer.__init__` calls `super(Calculator, self).__init__()`, which skips `Calculator.__init__`
-  (it resolves to the *next* class after `Calculator` in the MRO, i.e. `CalculatorBase`). Result:
-  `self.verbose` is never set, and `create_html()` raises `AttributeError` unless a `verbose=` kwarg
-  was passed. The intended call is `super().__init__()`.
-- `CalculatorBase._verify` returns `None`, so `create_html()` would always fall into the
-  `'Data has bad structure'` branch even once `verbose` is fixed.
-- `Calculator.set_rows` is the only real logic; `insert_row`, `_prepare`, `run`, `show_plot`,
-  `print_to_console` are all no-ops.
-- `Calculator.append_rows` reads `self.rows` before it may exist — it only works after `set_rows`.
-
-There are no tests, no packaging config (`setup.py`/`pyproject.toml`), no linter config, and no CI.
-If a task needs any of those, they have to be created.
+Not published to PyPI. It is installed from a clone, with `uv sync` or `pip install -e .`.
 
 ## Commands
 
 ```bash
-pip install -r requirements.txt   # numpy, pandas, plotly
-python usage.py                   # the only entry point / smoke check
+uv sync                                  # or: pip install -e ".[all]"
+uv run pytest                            # 248 tests, ~3s
+uv run ruff check src tests
+uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
+uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
 ```
 
-Run from the repo root — `usage.py` imports `vme` as a top-level package and there is no install step.
+`uv.lock` is gitignored on purpose — this is a library, so dev environments are resolved fresh.
 
 ## Architecture
 
-Single inheritance chain, one class per layer, each layer adding one responsibility:
+The inheritance chain from the original prototype is kept, one responsibility per layer:
 
 ```
-CalculatorBase (vme/data_store.py)  — validation + console output contract (_verify, print_to_console)
-      └── Calculator (vme/data_store.py) — row storage (set_rows / append_rows / insert_row), verbose flag
-             └── Visualizer (vme/visualizer.py) — public API: create_html(), show_plot(), run()
+CalculatorBase (data_store.py)  validation + console output  (problems, _verify, print_to_console)
+   └── Calculator (data_store.py)  rows, sign conventions, conversion, period filter
+          └── Visualizer (visualizer.py)  public API: create_png / create_html / save / run
 ```
 
-`vme/__init__.py` re-exports only `Visualizer`; that is the intended public surface. Keep it that way —
-callers should never need to import `Calculator` or `CalculatorBase` directly.
+`vme/__init__.py` re-exports `Visualizer` plus `Expense`, `SankeyGraph` and `load`. `Visualizer` is
+the intended surface; callers should not need `Calculator` or `CalculatorBase`.
 
-The `create_html()` flow is the template the rest should follow: validate via `_verify()` first, raise
-on dirty data, and only then generate the plot. "Loose elements" in that error message means Sankey
-nodes that do not connect into the flow graph — that is the validation `_verify` is meant to perform.
+Around that chain sit modules that know nothing about each other:
 
-`vme/plotting.py` (empty) is where plotly Sankey construction belongs, and `vme/tools.py` (empty) is
-for shared helpers; the visualizer should delegate to them rather than build figures inline.
+| Module | Owns |
+|---|---|
+| `models.py` | `Expense` (frozen, `Decimal`, direction in `kind`), `Node`/`Link`/`SankeyGraph` |
+| `currencies.py` | ~50 currencies' formatting rules; rate files (JSON/CSV) |
+| `tools.py` | amount/date/direction parsing, duck-typed row coercion |
+| `io/` | one self-registering module per input format |
+| `sankey.py` | rows → `SankeyGraph`: folding into "Other", the savings branch |
+| `plotting.py` | layout (renderer-independent) + matplotlib and plotly backends |
+| `theme.py` | light/dark palettes |
+| `cli.py` | the click commands |
 
-## Data model
+Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → `convert` → period filter
+→ `build_graph` → `layout_graph` → a backend. Anything that changes totals must run before
+`footer()` reads them — a bug once had the footer summing pre-conversion amounts.
 
-Rows are duck-typed — nothing validates their shape. The convention comes from `usage.py`:
+## Things that are easy to get wrong
 
-```python
-Expense = namedtuple('Expense', ['category', 'label', 'amount', 'currency'])
-```
+- **Direction, not sign.** `Expense.amount` is always non-negative; `kind` carries the direction.
+  Loaders emit `kind=AUTO` when the file did not say, and `apply_sign_convention` resolves every
+  `AUTO` row at once (a file with any negative amount is read as a bank statement). A row that
+  reaches the plotter still `AUTO`, or with a negative amount, is a bug — `problems()` reports both.
+- **Constructing `Expense` directly defaults to `EXPENSE`,** not `AUTO`. Income must say `kind="income"`.
+- **Currencies never convert themselves.** Rates come from the caller; nothing hits the network,
+  so the same input always draws the same picture.
+- **Money formatting is per-currency** (symbol, position, decimals, separators) and rounds
+  ROUND_HALF_UP. The digit-group separator is a narrow no-break space (`GROUP_SPACE`, U+202F) — tests
+  comparing formatted output must use it, not a plain space.
+- **Label geometry is measured, not estimated.** `_text_inches` measures with matplotlib's
+  `TextPath`; margins, truncation and the inter-node gap are all derived from those measurements.
+  The gap is *solved for* so every node gets a text line of clearance — see the comment in `render`.
+  Changing font sizes or padding without re-deriving it brings back overlapping labels.
+- **Rendering tests must use the Agg backend** (`tests/conftest.py` sets it).
 
-Each row carries its own `currency`, while `Visualizer(currency=...)` sets the display/target currency
-(defaults to `'USD'`). Reconciling the two (conversion, or rejecting mixed currencies) is unimplemented
-and is a decision that has not been made yet.
+## Conventions
 
-`numpy` and `pandas` are declared dependencies and imported in `data_store.py` but not yet used —
-the row store is a plain list.
+- Python 3.9 is supported, so `typing.Optional`/`Dict`/`List` stay; ruff's PEP 604/585 rules are
+  disabled in `pyproject.toml` for that reason.
+- Errors that a user can act on say what to do (`--rate EUR=4.30`, `pip install "...[excel]"`).
+  Loader errors name the file and line.
+- Palettes are validated for colour-blind separation and contrast against their own surface, and
+  every node carries a visible label — no reading of the chart depends on distinguishing two hues.
+  Do not add a ninth categorical colour; past slot 8 things fold into a grey "Other".

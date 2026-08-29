@@ -46,10 +46,13 @@ Source = "https://github.com/oskar-j/visualize-my-expenses"
 Issues = "https://github.com/oskar-j/visualize-my-expenses/issues"
 
 [dependency-groups]
+# `uv sync` installs these; they include both optional extras so the whole test
+# suite runs rather than skipping the Excel and HTML cases.
 dev = [
     "pytest>=7.0",
     "ruff>=0.5",
     "openpyxl>=3.0",
+    "plotly>=5.0",
 ]
 
 [tool.hatch.build.targets.wheel]
