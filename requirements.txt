@@ -1,3 +1,8 @@
-numpy
-pandas
-plotly
+# Runtime dependencies. Prefer `pip install -e .` (or `uv sync`) which reads
+# pyproject.toml; this file is kept for convenience / older tooling.
+click>=8.0
+matplotlib>=3.5
+
+# Optional extras:
+#   pip install -e ".[excel]"  -> openpyxl, for .xlsx statements
+#   pip install -e ".[html]"   -> plotly, for interactive HTML output

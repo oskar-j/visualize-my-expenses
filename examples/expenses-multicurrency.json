@@ -1,0 +1,20 @@
+[
+  {"date": "2026-09-01", "category": "Income",     "label": "Salary",           "amount": 4200.00, "currency": "EUR", "kind": "income"},
+  {"date": "2026-09-03", "category": "Income",     "label": "Side project",     "amount": 1500.00, "currency": "USD", "kind": "income"},
+  {"date": "2026-09-02", "category": "Housing",    "label": "Rent",             "amount": 1250.00, "currency": "EUR"},
+  {"date": "2026-09-02", "category": "Housing",    "label": "Utilities",        "amount": 148.20,  "currency": "EUR"},
+  {"date": "2026-09-05", "category": "Groceries",  "label": "Supermarket",      "amount": 386.40,  "currency": "EUR"},
+  {"date": "2026-09-12", "category": "Groceries",  "label": "Market",           "amount": 92.00,   "currency": "EUR"},
+  {"date": "2026-09-08", "category": "Travel",     "label": "Flights to Kyiv",  "amount": 310.00,  "currency": "EUR"},
+  {"date": "2026-09-09", "category": "Travel",     "label": "Apartment Kyiv",   "amount": 14800.00,"currency": "UAH"},
+  {"date": "2026-09-10", "category": "Travel",     "label": "Taxis Kyiv",       "amount": 2350.00, "currency": "UAH"},
+  {"date": "2026-09-11", "category": "Eating out", "label": "Restaurants Kyiv", "amount": 4120.00, "currency": "UAH"},
+  {"date": "2026-09-14", "category": "Eating out", "label": "Cafes",            "amount": 74.50,   "currency": "EUR"},
+  {"date": "2026-09-06", "category": "Work tools", "label": "Cloud hosting",    "amount": 96.00,   "currency": "USD"},
+  {"date": "2026-09-06", "category": "Work tools", "label": "Software licences","amount": 148.00,  "currency": "USD"},
+  {"date": "2026-09-18", "category": "Health",     "label": "Dentist",          "amount": 180.00,  "currency": "EUR"},
+  {"date": "2026-09-20", "category": "Family",     "label": "Gifts",            "amount": 5600.00, "currency": "UAH"},
+  {"date": "2026-09-22", "category": "Leisure",    "label": "Concert",          "amount": 68.00,   "currency": "EUR"},
+  {"date": "2026-09-25", "category": "Subscriptions", "label": "Music",         "amount": 10.99,   "currency": "EUR"},
+  {"date": "2026-09-25", "category": "Subscriptions", "label": "Backup",        "amount": 8.00,    "currency": "USD"}
+]
