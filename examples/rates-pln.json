@@ -1,0 +1,12 @@
+{
+  "base": "PLN",
+  "date": "2026-08-31",
+  "comment": "One unit of each currency, expressed in PLN. Edit these to your own.",
+  "rates": {
+    "EUR": 4.30,
+    "USD": 3.95,
+    "UAH": 0.095,
+    "GBP": 5.05,
+    "CZK": 0.17
+  }
+}

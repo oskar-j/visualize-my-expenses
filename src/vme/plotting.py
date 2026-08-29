@@ -71,8 +71,13 @@ class Layout:
         return max((len(self.column(d)) for d in self.columns), default=0)
 
 
-def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018) -> Layout:
-    """Stack each column top-down, then slice the ribbons off the node edges."""
+def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018,
+                 gap: Optional[float] = None) -> Layout:
+    """Stack each column top-down, then slice the ribbons off the node edges.
+
+    ``gap`` sets the space between nodes in value units directly; without it the
+    gap is ``gap_fraction`` of the tallest column.
+    """
     layout = Layout(columns=graph.depths)
     if not graph.nodes:
         return layout
@@ -88,7 +93,8 @@ def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018) -> Layout:
         for depth in layout.columns
     }
     span_values = max(column_sums.values()) if column_sums else 0.0
-    gap = gap_fraction * span_values if span_values else 0.0
+    if gap is None:
+        gap = gap_fraction * span_values if span_values else 0.0
 
     previous_order: "Dict[str, int]" = {}
     heights: "Dict[int, float]" = {}
@@ -228,7 +234,7 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
     from matplotlib.path import Path
 
     theme = theme or get_theme("light")
-    layout = layout_graph(graph)
+    layout = layout_graph(graph, gap_fraction=0.0)   # first pass: measure only
     if not layout.placements:
         raise ValueError("nothing to draw: the graph has no nodes")
 
@@ -263,6 +269,22 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
     top_pad = (0.12 if graph.subtitle else 0.09) if has_header else 0.03
     bottom_pad = 0.075 if footer else 0.03
     axes_h_in = fig_h * max(1 - top_pad - bottom_pad, 0.05)
+
+    # Re-lay out with a gap wide enough that two neighbouring labels never touch.
+    # Every node needs one text line of clearance, and node heights are fixed by
+    # the values, so the clearance has to come out of the gap. The gap widens the
+    # span, which is why it is solved for rather than guessed.
+    line_in = base_pt * 1.3 / 72.0
+    rows = max(layout.widest_column, 1)
+    packed = layout.span                       # tallest column, gaps excluded
+    denominator = 1 - line_in * (rows - 1) / axes_h_in
+    if packed > 0 and denominator > 0.25:
+        wanted = (line_in * packed / axes_h_in) / denominator
+        gap = min(max(wanted, packed * 0.012), packed * 0.05)
+    else:                                      # forced into a short figure
+        gap = packed * 0.012
+    layout = layout_graph(graph, gap=gap)
+
     units_per_inch = layout.span / max(axes_h_in, 1e-6)
     line_units = base_pt * 1.3 / 72.0 * units_per_inch
 

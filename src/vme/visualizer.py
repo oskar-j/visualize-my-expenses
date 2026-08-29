@@ -119,6 +119,8 @@ class Visualizer(Calculator):
         return ("Data has bad structure - are some of your elements loose?\n" + listed)
 
     def footer(self) -> str:
+        """The one-line summary printed under the plot."""
+        self.prepare()
         totals = self.totals()
         parts = []
         if totals["income"]:
@@ -136,10 +138,11 @@ class Visualizer(Calculator):
         """Write a shareable image. ``.svg`` and ``.pdf`` work here too."""
         from . import plotting
 
+        graph = self.graph()            # prepares and validates before we sum totals
         merged = dict(self.render_options)
         merged.update(options)
         merged.setdefault("footer", self.footer())
-        return plotting.save(self.graph(), str(filename), theme=self.theme(), **merged)
+        return plotting.save(graph, str(filename), theme=self.theme(), **merged)
 
     #: ``create_image`` reads better when the target is an SVG or a PDF.
     create_image = create_png
@@ -167,10 +170,11 @@ class Visualizer(Calculator):
         """Open the Sankey in an interactive matplotlib window."""
         from . import plotting
 
+        graph = self.graph()
         merged = dict(self.render_options)
         merged.update(options)
         merged.setdefault("footer", self.footer())
-        plotting.show(self.graph(), theme=self.theme(), **merged)
+        plotting.show(graph, theme=self.theme(), **merged)
 
     def print_to_console(self, file=None, width: int = 46) -> None:
         self.prepare()
