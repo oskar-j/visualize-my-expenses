@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import struct
+import warnings
 from decimal import Decimal
 
 import pytest
 
 from vme import Visualizer
 from vme.data_store import CurrencyError
+from vme.plotting import MAX_AUTO_HEIGHT, RenderWarning
 from vme.theme import get_theme
 
 
@@ -178,3 +180,42 @@ class TestTheme:
         theme = get_theme("light")
         assert theme.color_for(len(theme.categorical)) == theme.other
         assert theme.color_for(-1) == theme.other
+
+
+class TestCrowding:
+    def _many(self, categories=20, leaves=3):
+        return [{"date": "2026-08-01", "category": f"Category {c}",
+                 "label": f"Item {c}.{i}", "amount": 100 + i, "currency": "PLN"}
+                for c in range(categories) for i in range(leaves)]
+
+    def test_a_tall_chart_grows_instead_of_crowding(self, tmp_path):
+        out = tmp_path / "many.png"
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")          # must not warn
+            Visualizer(self._many(), currency="PLN").create_png(str(out))
+        assert png_size(out)[1] > 3_000
+
+    def test_the_auto_height_is_capped(self, tmp_path):
+        out = tmp_path / "huge.png"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            Visualizer(self._many(60, 3), currency="PLN").create_png(str(out))
+        assert png_size(out)[1] <= MAX_AUTO_HEIGHT
+
+    def test_a_forced_short_height_warns_instead_of_lying(self, tmp_path):
+        out = tmp_path / "squashed.png"
+        with pytest.warns(RenderWarning, match="will not fit legibly"):
+            Visualizer(self._many(), currency="PLN").create_png(str(out), height=700)
+        assert out.exists()                          # still drawn, just crowded
+
+    def test_folding_makes_a_crowded_chart_fit(self, tmp_path):
+        crowded = tmp_path / "crowded.png"
+        folded = tmp_path / "folded.png"
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            Visualizer(self._many(60, 3), currency="PLN").create_png(str(crowded))
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")           # folding must not warn
+            Visualizer(self._many(60, 3), currency="PLN", top_categories=8,
+                       max_labels=3).create_png(str(folded))
+        assert png_size(folded)[1] < png_size(crowded)[1]

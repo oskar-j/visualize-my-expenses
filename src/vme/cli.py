@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 import sys
+import warnings
 from typing import Any, Dict, Optional, Tuple
 
 import click
@@ -17,6 +18,7 @@ from . import __version__
 from .currencies import CURRENCIES, RateError, load_rates
 from .data_store import SIGN_CONVENTIONS, CurrencyError
 from .io import FORMATS, LoaderError, describe_formats
+from .plotting import RenderWarning
 from .theme import THEMES
 from .visualizer import HTML_SUFFIXES, IMAGE_SUFFIXES, Visualizer
 
@@ -174,9 +176,15 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
                               transparent=transparent, show_percent=not no_percent)
 
     try:
-        written = visualizer.save(output, **render_options)
+        with warnings.catch_warnings(record=True) as raised:
+            warnings.simplefilter("always", RenderWarning)
+            written = visualizer.save(output, **render_options)
     except (ValueError, CurrencyError, ImportError) as exc:
         _fail(str(exc))
+
+    for warning in raised:
+        if issubclass(warning.category, RenderWarning):
+            click.secho(f"note: {warning.message}", fg="yellow", err=True)
 
     if quiet:
         click.echo(written)

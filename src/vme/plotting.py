@@ -7,6 +7,7 @@ backend (interactive HTML) both consume the same placement.
 
 from __future__ import annotations
 
+import warnings
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
@@ -15,7 +16,13 @@ from .currencies import format_money, get_currency
 from .models import Link, Node, SankeyGraph
 from .theme import FONT_STACK, Theme, get_theme
 
-__all__ = ["Layout", "layout_graph", "render", "save", "show", "to_plotly", "write_html"]
+__all__ = ["Layout", "RenderWarning", "layout_graph", "render", "save", "show",
+           "to_plotly", "write_html"]
+
+
+class RenderWarning(UserWarning):
+    """The chart was drawn, but something about it will not read well."""
+
 
 ZERO = Decimal("0")
 
@@ -156,11 +163,16 @@ def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018,
 # --------------------------------------------------------------------------- #
 
 
+#: Tallest auto-chosen image, in pixels. Past this a chart is too long to be
+#: worth sharing, and the answer is to fold rows rather than to keep growing.
+MAX_AUTO_HEIGHT = 3600
+
+
 def _figure_size(layout: Layout, width: int, height: Optional[int],
                  dpi: int) -> Tuple[float, float]:
     if height is None:
         rows = max(layout.widest_column, 3)
-        height = int(min(2400, max(700, 150 + 66 * rows)))
+        height = int(min(MAX_AUTO_HEIGHT, max(700, 150 + 66 * rows)))
     return width / float(dpi), height / float(dpi)
 
 
@@ -283,6 +295,12 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
         gap = min(max(wanted, packed * 0.012), packed * 0.05)
     else:                                      # forced into a short figure
         gap = packed * 0.012
+        warnings.warn(
+            f"{rows} rows will not fit legibly in this chart, so some labels "
+            "overlap. Fold rows together (--top / --max-labels / --min-share), "
+            "or ask for a taller image (--height).",
+            RenderWarning, stacklevel=2,
+        )
     layout = layout_graph(graph, gap=gap)
 
     units_per_inch = layout.span / max(axes_h_in, 1e-6)
