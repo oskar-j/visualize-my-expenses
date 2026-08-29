@@ -301,13 +301,14 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
         return wide + _INLINE_GAP_IN + _text_inches(value, value_pt)
 
     gutter_in = 0.12                # breathing room between a bar and its label
+    slack_in = 0.02                 # covers the rounding in pad -> inches -> pad
     max_pad_in = fig_w * 0.30
 
     def column_pad(depth: int) -> float:
         if depth == first == last:
             return 0.02
         wanted = max((needed_inches(p) for p in layout.column(depth)), default=0.0)
-        return (min(wanted, max_pad_in) + gutter_in) / fig_w
+        return (min(wanted, max_pad_in) + gutter_in + slack_in) / fig_w
 
     left_pad = column_pad(first) if first != last else 0.02
     right_pad = column_pad(last)
@@ -387,12 +388,20 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
                       path_effects=effects, **common)
             continue
 
-        axes.text(text_x, placement.middle, name, ha=align, fontsize=base_pt,
+        # Side by side. On the left column the pair is mirrored, so the value
+        # takes the spot next to the bar and the name sits outside it -- that
+        # keeps "Freelance  1 450 zł" reading in that order on both sides.
+        if align == "right" and show_values:
+            step = (_text_inches(value, value_pt) + _INLINE_GAP_IN) / axes_w_in
+            name_x, value_x = text_x - step, text_x
+        else:
+            step = (_text_inches(name, base_pt, "medium") + _INLINE_GAP_IN) / axes_w_in
+            name_x, value_x = text_x, text_x + step
+
+        axes.text(name_x, placement.middle, name, ha=align, fontsize=base_pt,
                   color=theme.ink, fontweight="medium", path_effects=effects, **common)
         if show_values:
-            step = (_text_inches(name, base_pt, "medium") + _INLINE_GAP_IN) / axes_w_in
-            axes.text(text_x + (-step if align == "right" else step),
-                      placement.middle, value, ha=align, fontsize=value_pt,
+            axes.text(value_x, placement.middle, value, ha=align, fontsize=value_pt,
                       color=theme.ink_muted, path_effects=effects, **common)
 
     head_x = 0.02 if left_pad <= 0.1 else left_pad * 0.35
