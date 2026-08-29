@@ -15,7 +15,7 @@ __all__ = ["load_json", "load_jsonl"]
 CONTAINER_KEYS = ("expenses", "rows", "transactions", "data", "items", "entries", "records")
 
 
-def _extract(document: Any, path: str) -> "List[Any]":
+def _extract(document: Any, path: str) -> List[Any]:
     if isinstance(document, list):
         return document
     if isinstance(document, dict):

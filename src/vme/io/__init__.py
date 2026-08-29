@@ -33,7 +33,7 @@ def load(path: str, fmt: Optional[str] = None, **options: object) -> List[Expens
     return FORMATS[name].loader(str(path), **options)
 
 
-def describe_formats() -> "List[tuple]":
+def describe_formats() -> List[tuple]:
     """``[(name, extensions, description, optional_dependency), ...]``"""
     return [
         (f.name, ", ".join("." + e for e in f.extensions), f.description, f.requires)

@@ -11,11 +11,16 @@ from __future__ import annotations
 
 import json
 import os
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, Mapping, NamedTuple, Optional
 
-__all__ = ["Currency", "CURRENCIES", "get_currency", "format_money", "compact_money",
-           "normalise_code", "load_rates", "sniff_currency", "SYMBOL_TO_CURRENCY"]
+__all__ = ["Currency", "CURRENCIES", "GROUP_SPACE", "get_currency", "format_money",
+           "compact_money", "normalise_code", "load_rates", "sniff_currency",
+           "SYMBOL_TO_CURRENCY"]
+
+#: Narrow no-break space -- the typographic separator for grouped digits, and
+#: what sits between a number and a trailing currency symbol.
+GROUP_SPACE = "\u202f"
 
 
 class Currency(NamedTuple):
@@ -40,7 +45,7 @@ def _c(code: str, symbol: str, name: str, **kwargs: Any) -> Currency:
 #: used as the symbol and the default 2-decimal, suffix layout applies.
 CURRENCIES: Dict[str, Currency] = {c.code: c for c in (
     # Europe
-    _c("EUR", "€", "Euro", prefix=True),
+    _c("EUR", "€", "Euro", prefix=True, group=","),
     _c("PLN", "zł", "Polish złoty", group=" ", decimal_point=","),
     _c("UAH", "₴", "Ukrainian hryvnia", decimal_point=","),
     _c("GBP", "£", "Pound sterling", prefix=True, group=","),
@@ -147,7 +152,13 @@ def format_money(amount: Any, currency: Any = "USD",
     """``1234.5, "PLN"`` -> ``"1 234,50 zł"``; ``1234.5, "USD"`` -> ``"$1,234.50"``."""
     spec = get_currency(currency)
     places = spec.decimals if decimals is None else max(int(decimals), 0)
-    value = float(amount)
+    # Money rounds half away from zero; float formatting rounds half to even,
+    # which would show 1234.5 JPY as 1,234.
+    try:
+        value = Decimal(str(amount)).quantize(Decimal(1).scaleb(-places),
+                                              rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, ArithmeticError):
+        value = Decimal(str(float(amount)))
     body = f"{value:,.{places}f}"
     # Re-punctuate from the neutral "1,234.50" into the currency's own style.
     body = body.replace(",", "\x00").replace(".", spec.decimal_point) \
@@ -177,7 +188,7 @@ class RateError(ValueError):
     """A rates file could not be read."""
 
 
-def load_rates(path: str, target: Optional[str] = None) -> "Dict[str, Decimal]":
+def load_rates(path: str, target: Optional[str] = None) -> Dict[str, Decimal]:
     """Read conversion rates from a JSON or CSV file.
 
     JSON, either flat or with a target declared::
@@ -195,7 +206,7 @@ def load_rates(path: str, target: Optional[str] = None) -> "Dict[str, Decimal]":
     """
     suffix = os.path.splitext(str(path))[1].lower()
     try:
-        with open(path, "r", encoding="utf-8-sig") as handle:
+        with open(path, encoding="utf-8-sig") as handle:
             text = handle.read()
     except OSError as exc:
         raise RateError(f"cannot open rates file {path}: {exc}") from exc
@@ -212,7 +223,7 @@ def load_rates(path: str, target: Optional[str] = None) -> "Dict[str, Decimal]":
             f"{target.upper()}. Re-state the rates, or run with -c {base.upper()}."
         )
 
-    rates: "Dict[str, Decimal]" = {}
+    rates: Dict[str, Decimal] = {}
     for code, value in pairs.items():
         try:
             rate = Decimal(str(value))
@@ -226,7 +237,7 @@ def load_rates(path: str, target: Optional[str] = None) -> "Dict[str, Decimal]":
     return rates
 
 
-def _rates_from_json(text: str, path: str) -> "tuple":
+def _rates_from_json(text: str, path: str) -> tuple:
     try:
         document = json.loads(text)
     except json.JSONDecodeError as exc:
@@ -241,7 +252,7 @@ def _rates_from_json(text: str, path: str) -> "tuple":
             if k not in ("base", "target", "currency", "date", "source")}, base
 
 
-def _rates_from_csv(text: str, path: str) -> "Dict[str, Any]":
+def _rates_from_csv(text: str, path: str) -> Dict[str, Any]:
     import csv
     import io
 
@@ -264,7 +275,7 @@ def _rates_from_csv(text: str, path: str) -> "Dict[str, Any]":
             if len(row) > max(code_at, rate_at) and row[code_at].strip()}
 
 
-def describe(codes: Optional[Iterable[str]] = None) -> "list":
+def describe(codes: Optional[Iterable[str]] = None) -> list:
     """``[(code, symbol, name), ...]`` for the ``vme currencies`` command."""
     keys = [normalise_code(c) for c in codes] if codes else sorted(CURRENCIES)
     return [(c.code, c.symbol, c.name) for c in (get_currency(k) for k in keys)]

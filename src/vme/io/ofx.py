@@ -24,8 +24,8 @@ _FIELD_RE = re.compile(r"<([A-Z0-9.]+)>([^<\r\n]*)", re.IGNORECASE)
 _CREDIT_TYPES = {"CREDIT", "DEP", "DIRECTDEP", "INT", "DIV", "XFER"}
 
 
-def _fields(block: str) -> "dict[str, str]":
-    found: "dict[str, str]" = {}
+def _fields(block: str) -> dict[str, str]:
+    found: dict[str, str] = {}
     for name, value in _FIELD_RE.findall(block):
         value = value.strip()
         if value and name.upper() not in found:

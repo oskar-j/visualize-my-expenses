@@ -42,9 +42,11 @@ class Expense:
 
     def __post_init__(self) -> None:
         # Normalise in place; the dataclass is frozen, so go through object.
-        object.__setattr__(self, "category", (self.category or UNCATEGORIZED).strip() or UNCATEGORIZED)
+        category = (self.category or UNCATEGORIZED).strip() or UNCATEGORIZED
+        currency = str(self.currency).strip().upper() if self.currency else "USD"
+        object.__setattr__(self, "category", category)
         object.__setattr__(self, "label", (self.label or "").strip())
-        object.__setattr__(self, "currency", (str(self.currency).strip().upper() if self.currency else "USD"))
+        object.__setattr__(self, "currency", currency)
         object.__setattr__(self, "kind", self.kind if self.kind in (INCOME, AUTO) else EXPENSE)
         if not isinstance(self.amount, Decimal):
             object.__setattr__(self, "amount", Decimal(str(self.amount)))
@@ -72,7 +74,7 @@ class Expense:
         """The detail name to show, falling back to the category."""
         return self.label or self.category
 
-    def replace(self, **changes: object) -> "Expense":
+    def replace(self, **changes: object) -> Expense:
         return replace(self, **changes)  # type: ignore[arg-type]
 
     def as_dict(self) -> dict:
@@ -122,8 +124,8 @@ class Link:
 class SankeyGraph:
     """Nodes bucketed into columns (``depth``) plus the flows between them."""
 
-    nodes: "list[Node]" = field(default_factory=list)
-    links: "list[Link]" = field(default_factory=list)
+    nodes: list[Node] = field(default_factory=list)
+    links: list[Link] = field(default_factory=list)
     currency: str = "USD"
     title: str = ""
     subtitle: str = ""
@@ -142,7 +144,8 @@ class SankeyGraph:
                 return n
         return None
 
-    def add_link(self, source: str, target: str, value: Decimal, color: Optional[str] = None) -> None:
+    def add_link(self, source: str, target: str, value: Decimal,
+                 color: Optional[str] = None) -> None:
         for link in self.links:
             if link.source == source and link.target == target:
                 link.value += value
@@ -150,10 +153,10 @@ class SankeyGraph:
         self.links.append(Link(source, target, value, color))
 
     @property
-    def depths(self) -> "list[int]":
+    def depths(self) -> list[int]:
         return sorted({n.depth for n in self.nodes})
 
-    def nodes_at(self, depth: int) -> "list[Node]":
+    def nodes_at(self, depth: int) -> list[Node]:
         return [n for n in self.nodes if n.depth == depth]
 
     @property
@@ -162,7 +165,7 @@ class SankeyGraph:
         first = self.depths[0] if self.nodes else 0
         return sum((n.value for n in self.nodes_at(first)), Decimal("0"))
 
-    def loose_nodes(self) -> "list[Node]":
+    def loose_nodes(self) -> list[Node]:
         """Nodes that take part in no link at all -- the 'loose elements'."""
         wired = {lk.source for lk in self.links} | {lk.target for lk in self.links}
         return [n for n in self.nodes if n.key not in wired]

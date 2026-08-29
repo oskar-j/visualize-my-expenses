@@ -11,9 +11,9 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Dict, List, Optional, Tuple
 
-from .models import Link, SankeyGraph
-from .theme import FONT_STACK, Theme, get_theme
 from .currencies import format_money, get_currency
+from .models import Link, Node, SankeyGraph
+from .theme import FONT_STACK, Theme, get_theme
 
 __all__ = ["Layout", "layout_graph", "render", "save", "show", "to_plotly", "write_html"]
 
@@ -56,13 +56,13 @@ class Ribbon:
 
 @dataclass
 class Layout:
-    placements: "Dict[str, Placement]" = field(default_factory=dict)
-    ribbons: "List[Ribbon]" = field(default_factory=list)
-    columns: "List[int]" = field(default_factory=list)
+    placements: Dict[str, Placement] = field(default_factory=dict)
+    ribbons: List[Ribbon] = field(default_factory=list)
+    columns: List[int] = field(default_factory=list)
     span: float = 1.0          # tallest column, in value units
     gap: float = 0.0
 
-    def column(self, depth: int) -> "List[Placement]":
+    def column(self, depth: int) -> List[Placement]:
         return sorted((p for p in self.placements.values() if p.depth == depth),
                       key=lambda p: p.order)
 
@@ -82,8 +82,8 @@ def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018,
     if not graph.nodes:
         return layout
 
-    outgoing: "Dict[str, List[Link]]" = {}
-    incoming: "Dict[str, List[Link]]" = {}
+    outgoing: Dict[str, List[Link]] = {}
+    incoming: Dict[str, List[Link]] = {}
     for link in graph.links:
         outgoing.setdefault(link.source, []).append(link)
         incoming.setdefault(link.target, []).append(link)
@@ -96,8 +96,8 @@ def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018,
     if gap is None:
         gap = gap_fraction * span_values if span_values else 0.0
 
-    previous_order: "Dict[str, int]" = {}
-    heights: "Dict[int, float]" = {}
+    previous_order: Dict[str, int] = {}
+    heights: Dict[int, float] = {}
     for depth in layout.columns:
         nodes = graph.nodes_at(depth)
         nodes.sort(key=lambda n: (
@@ -157,7 +157,7 @@ def layout_graph(graph: SankeyGraph, gap_fraction: float = 0.018,
 
 
 def _figure_size(layout: Layout, width: int, height: Optional[int],
-                 dpi: int) -> "Tuple[float, float]":
+                 dpi: int) -> Tuple[float, float]:
     if height is None:
         rows = max(layout.widest_column, 3)
         height = int(min(2400, max(700, 150 + 66 * rows)))
@@ -170,11 +170,11 @@ _EM_PER_CHAR = 0.55
 #: Space left between a node's name and the value printed after it.
 _INLINE_GAP_IN = 0.10
 
-_RESOLVED_FONTS: "Optional[List[str]]" = None
-_WIDTHS: "Dict[tuple, float]" = {}
+_RESOLVED_FONTS: Optional[List[str]] = None
+_WIDTHS: Dict[tuple, float] = {}
 
 
-def _fonts() -> "List[str]":
+def _fonts() -> List[str]:
     """The font stack, filtered to what is actually installed (cached)."""
     global _RESOLVED_FONTS
     if _RESOLVED_FONTS is None:
@@ -254,7 +254,7 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
     # same column reads as two different scales.
     places = 0 if float(total) >= 500 else spec.decimals
 
-    def node_text(placement: Placement) -> "Tuple[str, str]":
+    def node_text(placement: Placement) -> Tuple[str, str]:
         node = placement.node
         text = format_money(node.value, graph.currency, places)
         if show_percent and total:

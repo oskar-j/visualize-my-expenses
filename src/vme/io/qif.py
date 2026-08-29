@@ -15,7 +15,7 @@ def load_qif(path: str, encoding: Optional[str] = None, default_currency: str = 
              dayfirst: Optional[bool] = None, **_: object) -> List[Expense]:
     text = read_text(path, encoding)
     expenses: List[Expense] = []
-    record: "dict[str, str]" = {}
+    record: dict[str, str] = {}
 
     for raw in text.splitlines():
         line = raw.rstrip("\r\n")
@@ -42,7 +42,7 @@ def load_qif(path: str, encoding: Optional[str] = None, default_currency: str = 
     return expenses
 
 
-def _build(record: "dict[str, str]", default_currency: str,
+def _build(record: dict[str, str], default_currency: str,
            dayfirst: Optional[bool]) -> Optional[Expense]:
     raw_amount = record.get("T") or record.get("U") or record.get("$")
     if raw_amount is None:

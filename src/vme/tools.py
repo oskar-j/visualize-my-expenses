@@ -129,17 +129,22 @@ def parse_amount(value: Any) -> Decimal:
         raise ValueError(f"cannot read amount from {value!r}")
 
     last_comma, last_dot = text.rfind(","), text.rfind(".")
+    spaces = " \u202f\xa0"
     if last_comma > last_dot:
-        # European style: comma is the decimal separator.
-        text = text.replace(".", "").replace(" ", "").replace(",", ".")
-    elif last_dot > last_comma:
-        text = text.replace(",", "").replace(" ", "")
-    else:  # only one kind of separator, or none
-        if text.count(",") == 1 and len(text.split(",")[-1]) != 3:
-            text = text.replace(",", ".")
-        else:
+        tail = text[last_comma + 1:]
+        # A lone comma is ambiguous: "2,500" is two and a half thousand, "1,50"
+        # is one and a half. Three trailing digits with no other separator in
+        # sight means it grouped thousands.
+        grouped = (last_dot < 0 and not any(ch in text for ch in spaces)
+                   and len(tail) == 3 and tail.isdigit())
+        if grouped or text.count(",") > 1:
             text = text.replace(",", "")
-    text = text.replace(" ", "").replace(" ", "")
+        else:
+            text = text.replace(".", "").replace(",", ".")
+    else:
+        text = text.replace(",", "")
+    for space in spaces:
+        text = text.replace(space, "")
 
     try:
         amount = Decimal(text)
@@ -214,13 +219,13 @@ def parse_date(value: Any, dayfirst: Optional[bool] = None) -> Optional[_dt.date
     return None
 
 
-def month_bounds(year: int, month: int) -> "tuple[_dt.date, _dt.date]":
+def month_bounds(year: int, month: int) -> tuple[_dt.date, _dt.date]:
     start = _dt.date(year, month, 1)
     end = _dt.date(year + (month == 12), (month % 12) + 1, 1) - _dt.timedelta(days=1)
     return start, end
 
 
-def parse_period(text: str) -> "tuple[_dt.date, _dt.date]":
+def parse_period(text: str) -> tuple[_dt.date, _dt.date]:
     """``'2026-08'`` -> that month; ``'2026'`` -> that year; ``'a..b'`` -> a range."""
     raw = str(text).strip()
     if ".." in raw:
@@ -355,7 +360,7 @@ def _looks_like_income(mapping: Mapping[str, Any]) -> bool:
 
 
 def coerce_rows(rows: Optional[Iterable[Any]], default_currency: str = "USD",
-                dayfirst: Optional[bool] = None) -> "list[Expense]":
+                dayfirst: Optional[bool] = None) -> list[Expense]:
     if rows is None:
         return []
     return [coerce_row(row, default_currency, dayfirst) for row in rows]

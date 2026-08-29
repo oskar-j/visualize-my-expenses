@@ -32,7 +32,7 @@ class Format:
         return f"<Format {self.name}>"
 
 
-FORMATS: "Dict[str, Format]" = {}
+FORMATS: Dict[str, Format] = {}
 
 
 def register(fmt: Format) -> Format:
@@ -76,7 +76,7 @@ def read_text(path: str, encoding: Optional[str] = None) -> str:
     last: Optional[Exception] = None
     for enc in encodings:
         try:
-            with open(path, "r", encoding=enc, newline="") as handle:
+            with open(path, encoding=enc, newline="") as handle:
                 return handle.read()
         except UnicodeDecodeError as exc:  # try the next one
             last = exc

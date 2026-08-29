@@ -66,9 +66,9 @@ def apply_sign_convention(rows: Sequence[Expense], convention: str = "auto") -> 
     return resolved
 
 
-def currencies_used(rows: Iterable[Expense]) -> "List[str]":
+def currencies_used(rows: Iterable[Expense]) -> List[str]:
     """Every currency appearing in ``rows``, most common first."""
-    counts: "Dict[str, int]" = defaultdict(int)
+    counts: Dict[str, int] = defaultdict(int)
     for row in rows:
         counts[row.currency] += 1
     return [code for code, _ in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))]
@@ -99,9 +99,8 @@ def convert(rows: Sequence[Expense], target: str,
         names = ", ".join(f"{code} ({get_currency(code).name})" for code in missing)
         example = missing[0]
         raise CurrencyError(
-            "rows are in {} but the report is in {}. Give a rate for each one, "
-            "for example:  --rate {}=4.30   (one {} is worth 4.30 {})".format(
-                names, target, example, example, target)
+            f"rows are in {names} but the report is in {target}. Give a rate for each one, "
+            f"for example:  --rate {example}=4.30   (one {example} is worth 4.30 {target})"
         )
 
     converted: List[Expense] = []
@@ -114,7 +113,7 @@ def convert(rows: Sequence[Expense], target: str,
     return converted
 
 
-class CalculatorBase(object):
+class CalculatorBase:
     """Validation and console-output contract shared by everything above it."""
 
     rows: List[Expense]
@@ -168,7 +167,7 @@ class CalculatorBase(object):
         """True when the data is clean enough to plot."""
         found = self.problems()
         if found and verbose:
-            print("vme: {} problem(s) found:".format(len(found)), file=sys.stderr)
+            print(f"vme: {len(found)} problem(s) found:", file=sys.stderr)
             for problem in found:
                 print(f"  - {problem}", file=sys.stderr)
         return not found
@@ -187,8 +186,8 @@ class CalculatorBase(object):
         print(title, file=stream)
         print("=" * max(len(title), 24), file=stream)
 
-        by_category: "Dict[str, Decimal]" = defaultdict(lambda: ZERO)
-        by_label: "Dict[str, Dict[str, Decimal]]" = defaultdict(
+        by_category: Dict[str, Decimal] = defaultdict(lambda: ZERO)
+        by_label: Dict[str, Dict[str, Decimal]] = defaultdict(
             lambda: defaultdict(lambda: ZERO))
         for row in rows:
             if row.is_income:
@@ -236,13 +235,13 @@ class Calculator(CalculatorBase):
         self.set_rows(rows)
 
     # ------------------------------------------------------------- row store
-    def set_rows(self, rows: Optional[Iterable[Any]]) -> "Calculator":
+    def set_rows(self, rows: Optional[Iterable[Any]]) -> Calculator:
         """Replace the current rows. Anything dict-like or tuple-like is accepted."""
         self.rows = coerce_rows(rows, self.currency)
         self._last_graph = None
         return self
 
-    def append_rows(self, rows: Optional[Iterable[Any]]) -> "Calculator":
+    def append_rows(self, rows: Optional[Iterable[Any]]) -> Calculator:
         """Add more rows to the ones already loaded."""
         if getattr(self, "rows", None) is None:
             return self.set_rows(rows)
@@ -250,17 +249,17 @@ class Calculator(CalculatorBase):
         self._last_graph = None
         return self
 
-    def insert_row(self, row: Any) -> "Calculator":
+    def insert_row(self, row: Any) -> Calculator:
         """Add a single row."""
         return self.append_rows([row])
 
     # ------------------------------------------------------------- pipeline
-    def currencies(self) -> "List[str]":
+    def currencies(self) -> List[str]:
         """Every currency present in the loaded rows, most common first."""
         return currencies_used(self.rows)
 
     def _prepare(self, sign: str = "auto", rates: Optional[Mapping[str, Any]] = None,
-                 period: Optional[str] = None, verbose: Optional[bool] = None) -> "Calculator":
+                 period: Optional[str] = None, verbose: Optional[bool] = None) -> Calculator:
         """Resolve directions, convert currencies and apply the period filter.
 
         Mutates the calculator in place and returns it, so it can be chained.
@@ -268,11 +267,11 @@ class Calculator(CalculatorBase):
         verbose = self.verbose if verbose is None else verbose
         rows = apply_sign_convention(self.rows, sign)
         if verbose:
-            present = currencies_used(rows)
-            if len(present) > 1:
-                print("vme: converting {} into {}".format(
-                    ", ".join(c for c in present if c != self.currency), self.currency),
-                    file=sys.stderr)
+            foreign = [c for c in currencies_used(rows) if c != self.currency]
+            if foreign:
+                print("vme: converting {} into {}".format(", ".join(foreign),
+                                                          self.currency),
+                      file=sys.stderr)
         rows = convert(rows, self.currency, rates)
 
         if period:
@@ -302,11 +301,11 @@ class Calculator(CalculatorBase):
         self._last_graph = None
         return self
 
-    def date_range(self) -> "Optional[Tuple[_dt.date, _dt.date]]":
+    def date_range(self) -> Optional[Tuple[_dt.date, _dt.date]]:
         dates = [row.date for row in self.rows if row.date is not None]
         return (min(dates), max(dates)) if dates else None
 
-    def totals(self) -> "Dict[str, Decimal]":
+    def totals(self) -> Dict[str, Decimal]:
         return summarise(self.rows)
 
     def build_graph(self, options: Optional[GraphOptions] = None, theme=None):

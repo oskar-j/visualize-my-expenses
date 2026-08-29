@@ -15,7 +15,7 @@ from collections import OrderedDict, defaultdict
 from decimal import Decimal
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
 
-from .models import Expense, Link, Node, SankeyGraph
+from .models import Expense, Node, SankeyGraph
 from .theme import Theme, get_theme
 
 __all__ = ["build_graph", "GraphOptions"]
@@ -40,13 +40,13 @@ class GraphOptions:
         self.other_label = other_label
 
 
-def _fold(items: "List[Tuple[str, Decimal]]", keep: Optional[int], min_share: float,
-          total: Decimal, other_label: str) -> "List[Tuple[str, Decimal]]":
+def _fold(items: List[Tuple[str, Decimal]], keep: Optional[int], min_share: float,
+          total: Decimal, other_label: str) -> List[Tuple[str, Decimal]]:
     """Keep the biggest ``keep`` items, sweep the rest into one 'Other' bucket."""
     ordered = sorted(items, key=lambda pair: (-pair[1], pair[0]))
     threshold = (Decimal(str(min_share)) / 100) * total if min_share and total else ZERO
 
-    kept: "List[Tuple[str, Decimal]]" = []
+    kept: List[Tuple[str, Decimal]] = []
     folded = ZERO
     for index, (name, value) in enumerate(ordered):
         too_many = keep is not None and index >= keep
@@ -86,7 +86,7 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
 
     # ---------------------------------------------------------------- income
     if has_income:
-        source_totals: "Dict[str, Decimal]" = defaultdict(lambda: ZERO)
+        source_totals: Dict[str, Decimal] = defaultdict(lambda: ZERO)
         for row in income_rows:
             name = row.category if options.group_income else (row.label or row.category)
             source_totals[name] += row.amount
@@ -101,8 +101,8 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
     graph.add_node(Node(hub_key, hub_label, hub_depth, hub_value, "hub", theme.hub))
 
     # ------------------------------------------------------------ categories
-    category_totals: "Dict[str, Decimal]" = defaultdict(lambda: ZERO)
-    label_totals: "Dict[str, Dict[str, Decimal]]" = defaultdict(
+    category_totals: Dict[str, Decimal] = defaultdict(lambda: ZERO)
+    label_totals: Dict[str, Dict[str, Decimal]] = defaultdict(
         lambda: defaultdict(lambda: ZERO))
     for row in expense_rows:
         category_totals[row.category] += row.amount
@@ -113,7 +113,7 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
 
     category_depth = hub_depth + 1
     palette_slot = 0
-    colors: "Dict[str, str]" = OrderedDict()
+    colors: Dict[str, str] = OrderedDict()
     for name, value in categories:
         key = f"cat:{name}"
         if name == options.other_label and name not in category_totals:
@@ -129,12 +129,12 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
     if options.detail:
         kept_names = {name for name, _ in categories}
         folded_names = [n for n in category_totals if n not in kept_names]
-        detail_source: "Dict[str, Dict[str, Decimal]]" = {}
+        detail_source: Dict[str, Dict[str, Decimal]] = {}
         for name in kept_names:
             if name in label_totals:
                 detail_source[name] = dict(label_totals[name])
         if folded_names and options.other_label in kept_names:
-            merged: "Dict[str, Decimal]" = defaultdict(lambda: ZERO)
+            merged: Dict[str, Decimal] = defaultdict(lambda: ZERO)
             for name in folded_names:
                 for leaf, value in label_totals[name].items():
                     merged[name if len(label_totals[name]) == 1 else leaf] += value
@@ -171,7 +171,7 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
     return graph
 
 
-def summarise(rows: Iterable[Expense]) -> "Dict[str, Decimal]":
+def summarise(rows: Iterable[Expense]) -> Dict[str, Decimal]:
     """Headline totals used by the console output and the plot footer."""
     rows = list(rows)
     income = sum((r.amount for r in rows if r.is_income), ZERO)

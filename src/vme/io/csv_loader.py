@@ -13,7 +13,7 @@ from .base import Format, LoaderError, read_text, register
 __all__ = ["load_csv"]
 
 
-def _sniff_dialect(sample: str) -> "type[csv.Dialect]":
+def _sniff_dialect(sample: str) -> type[csv.Dialect]:
     try:
         return csv.Sniffer().sniff(sample, delimiters=",;\t|")
     except csv.Error:
@@ -57,7 +57,7 @@ def load_csv(path: str, encoding: Optional[str] = None, delimiter: Optional[str]
     return expenses
 
 
-def _looks_like_header(header: "List[str]") -> bool:
+def _looks_like_header(header: List[str]) -> bool:
     """A header row is one where no cell parses as a number."""
     from ..tools import parse_amount
 
@@ -76,8 +76,10 @@ def _sniff(head: bytes) -> bool:
         text = head.decode("utf-8", "ignore")
     except Exception:  # pragma: no cover - defensive
         return False
-    first = text.splitlines()[0] if text.splitlines() else ""
-    return any(sep in first for sep in (",", ";", "\t")) and not first.lstrip().startswith(("{", "[", "<"))
+    lines = text.splitlines()
+    first = lines[0] if lines else ""
+    return (any(sep in first for sep in (",", ";", "\t"))
+            and not first.lstrip().startswith(("{", "[", "<")))
 
 
 register(Format("csv", "Comma/semicolon/tab separated values with a header row",

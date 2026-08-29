@@ -14,7 +14,7 @@ from typing import Any, Dict, Optional, Tuple
 import click
 
 from . import __version__
-from .currencies import CURRENCIES, RateError, get_currency, load_rates
+from .currencies import CURRENCIES, RateError, load_rates
 from .data_store import SIGN_CONVENTIONS, CurrencyError
 from .io import FORMATS, LoaderError, describe_formats
 from .theme import THEMES
@@ -30,10 +30,10 @@ def _fail(message: str, hint: str = "") -> None:
     raise SystemExit(2)
 
 
-def _parse_rates(pairs: "Tuple[str, ...]", rates_file: Optional[str] = None,
-                 target: str = "USD") -> "Dict[str, Any]":
+def _parse_rates(pairs: Tuple[str, ...], rates_file: Optional[str] = None,
+                 target: str = "USD") -> Dict[str, Any]:
     """Merge a rates file with any ``--rate CODE=FACTOR`` flags (flags win)."""
-    rates: "Dict[str, Any]" = {}
+    rates: Dict[str, Any] = {}
     if rates_file:
         try:
             rates.update(load_rates(rates_file, target))
@@ -132,7 +132,7 @@ def main(ctx: click.Context) -> None:
 @click.option("-q", "--quiet", is_flag=True, help="Only print the output path.")
 @click.option("-v", "--verbose", is_flag=True, help="Explain what is being filtered out.")
 def render(source: str, output: str, fmt: Optional[str], currency: str,
-           rates: "Tuple[str, ...]", rates_file: Optional[str],
+           rates: Tuple[str, ...], rates_file: Optional[str],
            month: Optional[str], year: Optional[str],
            period: Optional[str], title: str, subtitle: str, theme: str, sign: str,
            top_categories: Optional[int], max_labels: int, min_share: float,
@@ -168,7 +168,7 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
         group_income=group_income,
     ))
 
-    render_options: "Dict[str, Any]" = {}
+    render_options: Dict[str, Any] = {}
     if suffix not in HTML_SUFFIXES:
         render_options = dict(width=width, height=height, dpi=dpi,
                               transparent=transparent, show_percent=not no_percent)
@@ -211,7 +211,7 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
 @click.option("--sheet", help="Worksheet name, for Excel input.")
 @click.option("--encoding", help="Input encoding. Autodetected when omitted.")
 @click.option("-v", "--verbose", is_flag=True)
-def summary(source: str, fmt: Optional[str], currency: str, rates: "Tuple[str, ...]",
+def summary(source: str, fmt: Optional[str], currency: str, rates: Tuple[str, ...],
             rates_file: Optional[str],
             month: Optional[str], year: Optional[str], period: Optional[str],
             sign: str, sheet: Optional[str], encoding: Optional[str],
@@ -329,7 +329,7 @@ def sample(destination: str, kind: str, force: bool) -> None:
 
 
 def _build(source: str, fmt: Optional[str], currency: str,
-           loader_options: "Dict[str, Any]", kwargs: "Dict[str, Any]") -> Visualizer:
+           loader_options: Dict[str, Any], kwargs: Dict[str, Any]) -> Visualizer:
     try:
         return Visualizer.from_file(source, fmt=fmt, currency=currency,
                                     loader_options=loader_options, **kwargs)
@@ -339,7 +339,7 @@ def _build(source: str, fmt: Optional[str], currency: str,
         _fail(f"{source}: {exc}")
 
 
-def _totals_line(totals: "Dict[str, Any]", currency: str, count: int) -> str:
+def _totals_line(totals: Dict[str, Any], currency: str, count: int) -> str:
     from .tools import format_money
 
     parts = []

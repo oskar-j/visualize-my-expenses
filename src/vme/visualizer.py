@@ -9,17 +9,17 @@ from __future__ import annotations
 import os
 from typing import Any, Iterable, Mapping, Optional
 
+from .currencies import format_money, load_rates
 from .data_store import Calculator
 from .models import SankeyGraph
 from .sankey import GraphOptions
 from .theme import Theme, get_theme
-from .currencies import format_money, load_rates
 from .tools import period_label
 
 __all__ = ["Visualizer"]
 
 
-def _as_rates(rates: Any, target: str) -> "dict":
+def _as_rates(rates: Any, target: str) -> dict:
     """Accept a mapping, a path to a rates file, or nothing."""
     if rates is None:
         return {}
@@ -75,7 +75,7 @@ class Visualizer(Calculator):
     @classmethod
     def from_file(cls, path: str, fmt: Optional[str] = None, currency: str = "USD",
                   loader_options: Optional[Mapping[str, Any]] = None,
-                  **kwargs: Any) -> "Visualizer":
+                  **kwargs: Any) -> Visualizer:
         """Read ``path`` (any supported format) and return a ready visualizer."""
         from .io import load
 
@@ -89,7 +89,7 @@ class Visualizer(Calculator):
         return visualizer
 
     # -------------------------------------------------------------- pipeline
-    def prepare(self, force: bool = False) -> "Visualizer":
+    def prepare(self, force: bool = False) -> Visualizer:
         """Resolve directions, convert currencies, apply the period filter (idempotent)."""
         if self._prepared and not force:
             return self
