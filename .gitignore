@@ -102,3 +102,6 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+# Output written by usage.py (the checked-in examples are the other files there)
+examples/output/usage-*.png
