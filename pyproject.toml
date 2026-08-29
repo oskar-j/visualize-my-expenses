@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.21"]
+build-backend = "hatchling.build"
+
+[project]
+name = "visualize-my-expenses"
+version = "0.1.0"
+description = "Turn a list of budget expenses into a Sankey diagram you can share as a PNG."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.9"
+authors = [{ name = "Oskar Jarczyk" }]
+keywords = ["sankey", "budget", "expenses", "personal-finance", "visualization", "plot"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "License :: OSI Approved :: MIT License",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Accounting",
+    "Topic :: Scientific/Engineering :: Visualization",
+]
+dependencies = [
+    "click>=8.0",
+    "matplotlib>=3.5",
+]
+
+[project.optional-dependencies]
+excel = ["openpyxl>=3.0"]
+html = ["plotly>=5.0"]
+all = ["openpyxl>=3.0", "plotly>=5.0"]
+
+[project.scripts]
+vme = "vme.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/oskar-j/visualize-my-expenses"
+Source = "https://github.com/oskar-j/visualize-my-expenses"
+Issues = "https://github.com/oskar-j/visualize-my-expenses/issues"
+
+[dependency-groups]
+dev = [
+    "pytest>=7.0",
+    "ruff>=0.5",
+    "openpyxl>=3.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vme"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/vme", "tests", "examples", "README.md", "LICENSE"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4"]
+ignore = ["UP006", "UP007", "UP035"]
