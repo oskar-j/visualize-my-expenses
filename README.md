@@ -252,17 +252,22 @@ reading of the chart depends on telling two colours apart.
 Every pull request is linted, tested (Linux on Python 3.9–3.14, plus macOS and
 Windows) and built into a wheel that is installed and run. A merge to `master`
 does all of that again and then publishes to PyPI — but only if the version in
-`pyproject.toml` is not on PyPI yet. So a release is two steps:
+`pyproject.toml` is not on PyPI yet. So a release is three steps:
 
 1. in the pull request, bump the version with `uv version --bump patch` (or
    `minor`), which updates `pyproject.toml` and `uv.lock` together — edit
    `pyproject.toml` by hand and you need `uv lock` as well, or CI fails;
-2. merge it.
+2. describe it in [`CHANGELOG.md`](https://github.com/oskar-j/visualize-my-expenses/blob/master/CHANGELOG.md):
+   a `## [x.y.z]` section at the top and its release link at the bottom. The
+   tests fail without them, and the PR's `version check` run shows the notes
+   as they will be published;
+3. merge it.
 
 CI uploads through PyPI's trusted publishing, so no API token is stored
-anywhere; then it tags the commit `vX.Y.Z` and creates a GitHub release with the
-built files. A merge that leaves the version alone publishes nothing. PyPI never
-takes the same version twice, so a broken release is fixed by the next one.
+anywhere; then it tags the commit `vX.Y.Z` and creates a GitHub release whose
+notes are that changelog section, with the built files attached. A merge that
+leaves the version alone publishes nothing. PyPI never takes the same version
+twice, so a broken release is fixed by the next one.
 
 ## Licence
 

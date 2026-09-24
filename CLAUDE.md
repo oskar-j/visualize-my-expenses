@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 252 tests, ~5s
+uv run pytest                            # 255 tests, ~5s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -79,7 +79,8 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
 
 `.github/workflows/ci.yml` lints, tests and builds every PR. On a push to `master` it does the same,
 then publishes to PyPI — only if the version in `pyproject.toml` is not on PyPI yet — and tags
-`vX.Y.Z` with a GitHub release. A release is: bump the version in the PR, merge.
+`vX.Y.Z` with a GitHub release. A release is: bump the version in the PR, add its `CHANGELOG.md`
+section, merge.
 
 - **The version lives only in `pyproject.toml`.** Bump it with `uv version --bump patch`, which
   updates `uv.lock` in the same step. `vme.__version__` reads it from the installed metadata, so
@@ -92,6 +93,13 @@ then publishes to PyPI — only if the version in `pyproject.toml` is not on PyP
   stops publishing until the publisher on pypi.org is edited to match.
 - **A version can be uploaded once.** PyPI refuses a re-upload even after the release is deleted, so
   a bad release is fixed by bumping again.
+- **Every version needs a `CHANGELOG.md` section, and the heading is load-bearing.** It must be
+  exactly `## [x.y.z]` (no date after it), newest first, with a
+  `[x.y.z]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/vx.y.z` line at the
+  bottom. `tests/test_changelog.py` enforces all three. The section becomes the GitHub Release notes
+  verbatim, so write it for users. The style follows the author's walsh-hadamard-transform project:
+  Keep a Changelog groups (`Added`, `Changed`, `Fixed`, `Removed`, `Notes`), an optional lead
+  paragraph, and bullets that open with a bold sentence saying what changed, then why.
 
 ## Conventions
 
