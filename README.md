@@ -1,12 +1,16 @@
 # visualize-my-expenses
 
+[![PyPI](https://img.shields.io/pypi/v/vme-py)](https://pypi.org/project/vme-py/)
+[![CI](https://github.com/oskar-j/visualize-my-expenses/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/oskar-j/visualize-my-expenses/actions/workflows/ci.yml)
+
 Turn a month of budget rows into a Sankey diagram you can share as a PNG.
 
 ```bash
+pip install vme-py
 vme render budget.csv -c PLN -o august.png --month 2026-08
 ```
 
-![A Sankey diagram of one month of spending](examples/output/budget-august.png)
+![A Sankey diagram of one month of spending](https://raw.githubusercontent.com/oskar-j/visualize-my-expenses/master/examples/output/budget-august.png)
 
 Money flows left to right: income sources → your budget → categories → what you
 actually bought. Whatever you did not spend leaves as **Savings / left over**, so
@@ -16,26 +20,16 @@ the picture always balances.
 
 ## Install
 
-The package is not on PyPI; install it from a clone.
-
 ```bash
-git clone https://github.com/oskar-j/visualize-my-expenses
-cd visualize-my-expenses
+pip install vme-py
 ```
 
-**uv**
+The package is called `vme-py` on PyPI; the command it installs and the module
+you import are both `vme`. If you only want the command, give it an environment
+of its own:
 
 ```bash
-uv sync                       # creates .venv with the package, both extras and the dev tools
-uv run vme --help
-```
-
-**pip**
-
-```bash
-python -m venv .venv && source .venv/bin/activate
-pip install -e .              # or: pip install -e ".[all]"
-vme --help
+uv tool install vme-py        # or: pipx install vme-py
 ```
 
 Python 3.9 or newer. The core needs only `click` and `matplotlib` — no browser,
@@ -43,9 +37,22 @@ no headless Chrome, no network. Two optional extras:
 
 | Extra | Adds | For |
 |---|---|---|
-| `.[excel]` | `openpyxl` | reading `.xlsx` workbooks |
-| `.[html]` | `plotly` | writing an interactive `.html` version |
-| `.[all]` | both | |
+| `vme-py[excel]` | `openpyxl` | reading `.xlsx` workbooks |
+| `vme-py[html]` | `plotly` | writing an interactive `.html` version |
+| `vme-py[all]` | both | |
+
+```bash
+pip install "vme-py[all]"
+```
+
+To work on the code, install from a clone instead:
+
+```bash
+git clone https://github.com/oskar-j/visualize-my-expenses
+cd visualize-my-expenses
+uv sync                       # .venv as pinned by uv.lock: the package, both extras, the dev tools
+# or: python -m venv .venv && source .venv/bin/activate && pip install -e ".[all]"
+```
 
 ## Try it in 30 seconds
 
@@ -100,7 +107,7 @@ expressed in the report currency:
 vme render trip.csv -c PLN --rate EUR=4.30 --rate UAH=0.095 --rate USD=3.95
 ```
 
-![A month of spending across four currencies](examples/output/trip-multicurrency.png)
+![A month of spending across four currencies](https://raw.githubusercontent.com/oskar-j/visualize-my-expenses/master/examples/output/trip-multicurrency.png)
 
 Rates can live in a file instead (`--rates rates.json`), as JSON or CSV:
 
@@ -161,7 +168,7 @@ Useful `render` options:
 Sharing a picture in a chat app: the defaults (1600px wide, 200 dpi, light
 theme) are already sized for it. For a dark-mode chat, add `--theme dark`.
 
-![The same data in the dark theme](examples/output/september-dark.png)
+![The same data in the dark theme](https://raw.githubusercontent.com/oskar-j/visualize-my-expenses/master/examples/output/september-dark.png)
 
 ## Python API
 
@@ -211,9 +218,15 @@ Below `Visualizer` sit `vme.io` (loading), `vme.sankey` (rows → graph),
 
 ```bash
 uv sync                 # or: pip install -e ".[all]" pytest ruff
-uv run pytest           # 248 tests
+uv run pytest
 uv run ruff check src tests
 ```
+
+`uv.lock` pins the development environment, and CI installs from it with
+`--locked`, so after changing a dependency in `pyproject.toml` run `uv lock` and
+commit both files. The lock never reaches PyPI — `pip install vme-py` gets the
+version ranges from `pyproject.toml` — and working from a clone with pip simply
+ignores it.
 
 Layout:
 
@@ -234,6 +247,23 @@ The colour palettes are checked for colour-blind separation and for contrast
 against their own background, and every node carries a visible label, so no
 reading of the chart depends on telling two colours apart.
 
+### Releasing
+
+Every pull request is linted, tested (Linux on Python 3.9–3.14, plus macOS and
+Windows) and built into a wheel that is installed and run. A merge to `master`
+does all of that again and then publishes to PyPI — but only if the version in
+`pyproject.toml` is not on PyPI yet. So a release is two steps:
+
+1. in the pull request, bump the version with `uv version --bump patch` (or
+   `minor`), which updates `pyproject.toml` and `uv.lock` together — edit
+   `pyproject.toml` by hand and you need `uv lock` as well, or CI fails;
+2. merge it.
+
+CI uploads through PyPI's trusted publishing, so no API token is stored
+anywhere; then it tags the commit `vX.Y.Z` and creates a GitHub release with the
+built files. A merge that leaves the version alone publishes nothing. PyPI never
+takes the same version twice, so a broken release is fixed by the next one.
+
 ## Licence
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](https://github.com/oskar-j/visualize-my-expenses/blob/master/LICENSE).

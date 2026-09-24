@@ -4,24 +4,28 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-`visualize-my-expenses` (package `vme`) — a library and CLI that turns a flat list of budget rows
+`visualize-my-expenses` — on PyPI as `vme-py`, imported and run as `vme` — a library and CLI that turns a flat list of budget rows
 into a Sankey diagram, normally shared as a PNG. Sankey rendering is the whole point: money flows
 income → budget hub → categories → labels, so the data model is hierarchical even though the input
 is a flat list.
 
-Not published to PyPI. It is installed from a clone, with `uv sync` or `pip install -e .`.
+Users install it with `pip install vme-py`; CI publishes it (see Releasing). For development it is
+installed from a clone, with `uv sync` or `pip install -e .`.
 
 ## Commands
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 248 tests, ~3s
+uv run pytest                            # 252 tests, ~5s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
 ```
 
-`uv.lock` is gitignored on purpose — this is a library, so dev environments are resolved fresh.
+Both uv and pip must keep working. `uv.lock` is committed and CI installs from it with `--locked`,
+so any change to dependencies or the version in `pyproject.toml` needs `uv lock` too, or CI fails.
+The lock pins only the dev/CI environment: PyPI users get the ranges in `pyproject.toml`, and the
+CI build job installs the wheel with plain pip to check exactly that.
 
 ## Architecture
 
@@ -71,11 +75,29 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
   Changing font sizes or padding without re-deriving it brings back overlapping labels.
 - **Rendering tests must use the Agg backend** (`tests/conftest.py` sets it).
 
+## Releasing
+
+`.github/workflows/ci.yml` lints, tests and builds every PR. On a push to `master` it does the same,
+then publishes to PyPI — only if the version in `pyproject.toml` is not on PyPI yet — and tags
+`vX.Y.Z` with a GitHub release. A release is: bump the version in the PR, merge.
+
+- **The version lives only in `pyproject.toml`.** Bump it with `uv version --bump patch`, which
+  updates `uv.lock` in the same step. `vme.__version__` reads it from the installed metadata, so
+  after a bump the dev environment reports the old number until it is reinstalled (`uv sync` does
+  that; with pip, run `pip install -e .` again).
+- **The distribution is `vme-py`; the package is `vme`.** Install hints in error messages name
+  `vme-py[extra]`, and `importlib.metadata` lookups must use `vme-py`.
+- **PyPI's trusted publisher is tied to `ci.yml` and the `pypi` environment** of
+  `oskar-j/visualize-my-expenses`. Renaming the workflow file, the environment or the repository
+  stops publishing until the publisher on pypi.org is edited to match.
+- **A version can be uploaded once.** PyPI refuses a re-upload even after the release is deleted, so
+  a bad release is fixed by bumping again.
+
 ## Conventions
 
 - Python 3.9 is supported, so `typing.Optional`/`Dict`/`List` stay; ruff's PEP 604/585 rules are
   disabled in `pyproject.toml` for that reason.
-- Errors that a user can act on say what to do (`--rate EUR=4.30`, `pip install "...[excel]"`).
+- Errors that a user can act on say what to do (`--rate EUR=4.30`, `pip install "vme-py[excel]"`).
   Loader errors name the file and line.
 - Palettes are validated for colour-blind separation and contrast against their own surface, and
   every node carries a visible label — no reading of the chart depends on distinguishing two hues.
