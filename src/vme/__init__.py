@@ -11,6 +11,8 @@ graph you built yourself).
 
 from __future__ import annotations
 
+from importlib.metadata import PackageNotFoundError, version
+
 from .models import EXPENSE, INCOME, Expense, SankeyGraph
 from .theme import THEMES, get_theme
 from .visualizer import Visualizer
@@ -18,7 +20,11 @@ from .visualizer import Visualizer
 __all__ = ["Visualizer", "Expense", "SankeyGraph", "EXPENSE", "INCOME",
            "THEMES", "get_theme", "load", "__version__"]
 
-__version__ = "0.1.0"
+# pyproject.toml holds the version; read it back rather than keep a second copy.
+try:
+    __version__ = version("vme-py")
+except PackageNotFoundError:  # imported from a source tree that was never installed
+    __version__ = "0+unknown"
 
 
 def load(path, fmt=None, **options):

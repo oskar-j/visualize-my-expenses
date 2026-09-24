@@ -1,19 +1,21 @@
 [build-system]
-requires = ["hatchling>=1.21"]
+requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "visualize-my-expenses"
+name = "vme-py"
+# The one place the version lives: bump it here (`uv version --bump patch`) and
+# a merge to master publishes it. `vme.__version__` reads it back at runtime.
 version = "0.1.0"
 description = "Turn a list of budget expenses into a Sankey diagram you can share as a PNG."
 readme = "README.md"
-license = { file = "LICENSE" }
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.9"
 authors = [{ name = "Oskar Jarczyk" }]
 keywords = ["sankey", "budget", "expenses", "personal-finance", "visualization", "plot"]
 classifiers = [
     "Development Status :: 3 - Alpha",
-    "License :: OSI Approved :: MIT License",
     "Environment :: Console",
     "Intended Audience :: End Users/Desktop",
     "Operating System :: OS Independent",
@@ -24,6 +26,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Topic :: Office/Business :: Financial :: Accounting",
     "Topic :: Scientific/Engineering :: Visualization",
 ]
@@ -44,6 +47,7 @@ vme = "vme.cli:main"
 Homepage = "https://github.com/oskar-j/visualize-my-expenses"
 Source = "https://github.com/oskar-j/visualize-my-expenses"
 Issues = "https://github.com/oskar-j/visualize-my-expenses/issues"
+Changelog = "https://github.com/oskar-j/visualize-my-expenses/releases"
 
 [dependency-groups]
 # `uv sync` installs these; they include both optional extras so the whole test
@@ -60,6 +64,8 @@ packages = ["src/vme"]
 
 [tool.hatch.build.targets.sdist]
 include = ["src/vme", "tests", "examples", "README.md", "LICENSE"]
+# The README links the rendered PNGs on GitHub, so the sdist need not carry them.
+exclude = ["examples/output"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

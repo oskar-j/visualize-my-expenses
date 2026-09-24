@@ -1,0 +1,170 @@
+# Lint, test and build every pull request. On master, do the same and then
+# publish to PyPI -- but only when the version in pyproject.toml is not on PyPI
+# yet, so merging a PR that leaves the version alone publishes nothing.
+#
+# Publishing uses PyPI trusted publishing (OIDC): no API token is stored in the
+# repository. PyPI trusts this file by name (ci.yml) together with the `pypi`
+# environment; rename either and the publisher configured on pypi.org has to be
+# changed to match, or the upload is refused.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  # A new push to a PR cancels its older run; runs on master queue instead, so
+  # a release that has started is never cut short.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  PACKAGE: vme-py
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      # Actions from outside GitHub are pinned to a commit; the comment names the release.
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      - run: uv run --locked ruff check src tests
+
+  test:
+    name: test (${{ matrix.os }}, Python ${{ matrix.python }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest]
+        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        include:
+          - { os: macos-latest, python: "3.13" }
+          - { os: windows-latest, python: "3.13" }
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+        with:
+          python-version: ${{ matrix.python }}
+      # --locked: test exactly what uv.lock pins, and fail if pyproject.toml changed
+      # without `uv lock` being run.
+      - run: uv sync --locked
+      - run: uv run pytest
+
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7  # v10.2.0
+      # Builds the sdist, then the wheel from the sdist, so a file missing from
+      # the sdist fails here rather than for someone installing it.
+      - run: uv build
+      - name: Check the metadata PyPI will render
+        run: uvx twine check --strict dist/*
+      # pip ignores uv.lock and takes whatever PyPI serves today -- the same as
+      # someone running `pip install vme-py` -- so this covers the latest releases
+      # of the dependencies too.
+      - name: Install the wheel with pip into a clean environment and draw a chart
+        working-directory: ${{ runner.temp }}
+        run: |
+          uv venv --seed smoke
+          smoke/bin/pip install "$GITHUB_WORKSPACE"/dist/*.whl
+          smoke/bin/vme --version
+          smoke/bin/vme sample budget.csv
+          smoke/bin/vme render budget.csv -c PLN -o budget.png
+      - name: Read the version from the built wheel
+        id: version
+        run: |
+          version=$(unzip -p dist/*.whl '*.dist-info/METADATA' | sed -n 's/^Version: //p')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+  version-check:
+    name: version check
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      new: ${{ steps.pypi.outputs.new }}
+    steps:
+      - name: Is this version on PyPI already?
+        id: pypi
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          status=$(curl --silent --retry 3 --output /dev/null --write-out '%{http_code}' \
+                   "https://pypi.org/pypi/$PACKAGE/$VERSION/json")
+          case "$status" in
+            404) new=true
+                 message="$PACKAGE $VERSION is not on PyPI yet, so the master build publishes it." ;;
+            200) new=false
+                 message="$PACKAGE $VERSION is already on PyPI, so nothing is published. Bump the version in pyproject.toml to release." ;;
+            *)   echo "::error::PyPI answered HTTP $status for $PACKAGE $VERSION"
+                 exit 1 ;;
+          esac
+          echo "new=$new" >> "$GITHUB_OUTPUT"
+          echo "::notice::$message"
+          echo "$message" >> "$GITHUB_STEP_SUMMARY"
+
+  publish:
+    name: publish to PyPI
+    needs: [lint, test, build, version-check]
+    if: >-
+      github.event_name == 'push' && github.ref == 'refs/heads/master'
+      && needs.version-check.outputs.new == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: pypi
+      url: https://pypi.org/project/vme-py/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write  # the OIDC token PyPI trades for a short-lived upload token
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33  # v1.14.2
+
+  github-release:
+    name: tag and release on GitHub
+    needs: [build, publish]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write  # creates the vX.Y.Z tag and the release
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: dist
+          path: dist/
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: v${{ needs.build.outputs.version }}
+        run: >-
+          gh release create "$TAG" dist/*
+          --repo "$GITHUB_REPOSITORY"
+          --target "$GITHUB_SHA"
+          --title "$TAG"
+          --generate-notes
