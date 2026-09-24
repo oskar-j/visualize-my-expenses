@@ -1,6 +1,7 @@
 # Lint, test and build every pull request. On master, do the same and then
 # publish to PyPI -- but only when the version in pyproject.toml is not on PyPI
-# yet, so merging a PR that leaves the version alone publishes nothing.
+# yet, so merging a PR that leaves the version alone publishes nothing. The
+# release notes are that version's section of CHANGELOG.md.
 #
 # Publishing uses PyPI trusted publishing (OIDC): no API token is stored in the
 # repository. PyPI trusts this file by name (ci.yml) together with the `pypi`
@@ -107,6 +108,9 @@ jobs:
     outputs:
       new: ${{ steps.pypi.outputs.new }}
     steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
       - name: Is this version on PyPI already?
         id: pypi
         env:
@@ -125,6 +129,31 @@ jobs:
           echo "new=$new" >> "$GITHUB_OUTPUT"
           echo "::notice::$message"
           echo "$message" >> "$GITHUB_STEP_SUMMARY"
+      # tests/test_changelog.py already insists the section exists; this takes
+      # it out as the release notes, and on a PR shows them in the run summary.
+      # The heading is matched as a whole line, so it must be exactly `## [x.y.z]`.
+      - name: Take the release notes from CHANGELOG.md
+        if: steps.pypi.outputs.new == 'true'
+        env:
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          awk -v heading="## [$VERSION]" '
+            $0 == heading { found = 1; next }
+            found && (/^## / || (substr($0, 1, 1) == "[" && index($0, "]: "))) { exit }
+            found { print }
+          ' CHANGELOG.md | sed '/./,$!d' > release-notes.md
+          if ! grep -q '[^[:space:]]' release-notes.md; then
+            echo "::error file=CHANGELOG.md::No \"## [$VERSION]\" section to use as the release notes."
+            exit 1
+          fi
+          { echo "## Release notes for $VERSION"; echo; cat release-notes.md; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        if: steps.pypi.outputs.new == 'true'
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+          retention-days: 14
 
   publish:
     name: publish to PyPI
@@ -158,6 +187,9 @@ jobs:
         with:
           name: dist
           path: dist/
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-notes
       - name: Create the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -167,4 +199,4 @@ jobs:
           --repo "$GITHUB_REPOSITORY"
           --target "$GITHUB_SHA"
           --title "$TAG"
-          --generate-notes
+          --notes-file release-notes.md

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "vme-py"
 # The one place the version lives: bump it here (`uv version --bump patch`) and
 # a merge to master publishes it. `vme.__version__` reads it back at runtime.
-version = "0.1.0"
+version = "0.1.1"
 description = "Turn a list of budget expenses into a Sankey diagram you can share as a PNG."
 readme = "README.md"
 license = "MIT"
@@ -47,7 +47,7 @@ vme = "vme.cli:main"
 Homepage = "https://github.com/oskar-j/visualize-my-expenses"
 Source = "https://github.com/oskar-j/visualize-my-expenses"
 Issues = "https://github.com/oskar-j/visualize-my-expenses/issues"
-Changelog = "https://github.com/oskar-j/visualize-my-expenses/releases"
+Changelog = "https://github.com/oskar-j/visualize-my-expenses/blob/master/CHANGELOG.md"
 
 [dependency-groups]
 # `uv sync` installs these; they include both optional extras so the whole test
@@ -63,7 +63,7 @@ dev = [
 packages = ["src/vme"]
 
 [tool.hatch.build.targets.sdist]
-include = ["src/vme", "tests", "examples", "README.md", "LICENSE"]
+include = ["src/vme", "tests", "examples", "README.md", "CHANGELOG.md", "LICENSE"]
 # The README links the rendered PNGs on GitHub, so the sdist need not carry them.
 exclude = ["examples/output"]
 
