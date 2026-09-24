@@ -92,5 +92,5 @@ def require(module: str, extra: str, fmt: str) -> Any:
     except ImportError as exc:
         raise LoaderError(
             f"reading {fmt} files needs the '{module}' package. "
-            f"Install it with:  pip install \"visualize-my-expenses[{extra}]\""
+            f"Install it with:  pip install \"vme-py[{extra}]\""
         ) from exc

@@ -474,7 +474,7 @@ def to_plotly(graph: SankeyGraph, theme: Optional[Theme] = None):
     except ImportError as exc:  # pragma: no cover - depends on the environment
         raise ImportError(
             "HTML output needs plotly. Install it with:  "
-            'pip install "visualize-my-expenses[html]"'
+            'pip install "vme-py[html]"'
         ) from exc
 
     theme = theme or get_theme("light")
