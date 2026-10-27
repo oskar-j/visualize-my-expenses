@@ -93,6 +93,16 @@ class TestRender:
         result = run("render", budget, "-o", tmp_path / "x.docx")
         assert result.exit_code == 2 and "cannot write" in result.output
 
+    def test_output_oserror_is_reported_without_traceback(self, run, budget, tmp_path, monkeypatch):
+        def fail_save(*args, **kwargs):
+            raise PermissionError("permission denied")
+
+        monkeypatch.setattr("vme.cli.Visualizer.save", fail_save)
+        result = run("render", budget, "-o", tmp_path / "out.png")
+        assert result.exit_code == 2
+        assert "error: permission denied" in result.output
+        assert "Traceback" not in result.output
+
     def test_a_missing_file_is_refused(self, run, tmp_path):
         result = run("render", tmp_path / "nope.csv")
         assert result.exit_code == 2
