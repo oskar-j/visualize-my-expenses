@@ -7,6 +7,7 @@ real XML parser.
 
 from __future__ import annotations
 
+import html
 import re
 from typing import List, Optional
 
@@ -27,7 +28,7 @@ _CREDIT_TYPES = {"CREDIT", "DEP", "DIRECTDEP", "INT", "DIV", "XFER"}
 def _fields(block: str) -> dict[str, str]:
     found: dict[str, str] = {}
     for name, value in _FIELD_RE.findall(block):
-        value = value.strip()
+        value = html.unescape(value.strip())
         if value and name.upper() not in found:
             found[name.upper()] = value
     return found

@@ -181,6 +181,8 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
             written = visualizer.save(output, **render_options)
     except (ValueError, CurrencyError, ImportError) as exc:
         _fail(str(exc))
+    except OSError as exc:
+        _fail(f"cannot write {output}: {exc.strerror or exc}")
 
     for warning in raised:
         if issubclass(warning.category, RenderWarning):
