@@ -179,7 +179,7 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
         with warnings.catch_warnings(record=True) as raised:
             warnings.simplefilter("always", RenderWarning)
             written = visualizer.save(output, **render_options)
-    except (ValueError, CurrencyError, ImportError) as exc:
+    except (ValueError, CurrencyError, ImportError, OSError) as exc:
         _fail(str(exc))
 
     for warning in raised:
