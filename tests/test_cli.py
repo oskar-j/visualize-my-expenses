@@ -93,6 +93,14 @@ class TestRender:
         result = run("render", budget, "-o", tmp_path / "x.docx")
         assert result.exit_code == 2 and "cannot write" in result.output
 
+    @pytest.mark.parametrize("name", ["out.png", "out.html"])
+    def test_a_missing_output_directory_is_reported(self, run, budget, tmp_path, name):
+        out = tmp_path / "missing-dir" / name
+        result = run("render", budget, "-c", "PLN", "-o", out)
+        assert result.exit_code == 2
+        assert f"error: cannot write {out}" in result.output
+        assert "Traceback" not in result.output
+
     def test_a_missing_file_is_refused(self, run, tmp_path):
         result = run("render", tmp_path / "nope.csv")
         assert result.exit_code == 2
