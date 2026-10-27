@@ -95,6 +95,8 @@ class TestRender:
 
     @pytest.mark.parametrize("name", ["out.png", "out.html"])
     def test_a_missing_output_directory_is_reported(self, run, budget, tmp_path, name):
+        if name.endswith(".html"):
+            pytest.importorskip("plotly")
         out = tmp_path / "missing-dir" / name
         result = run("render", budget, "-c", "PLN", "-o", out)
         assert result.exit_code == 2
