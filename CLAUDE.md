@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 310 tests, ~9s
+uv run pytest                            # 312 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png

@@ -13,7 +13,9 @@ fails CI before it can be merged.
 ## [0.1.2]
 
 Two fixes for charts that came out wrong without any error: expenses drawn as
-income, and dates in one file read in two different orders.
+income, and dates in one file read in two different orders. Also two smaller
+fixes, contributed in #15: OFX names written with `&amp;`, and a traceback
+when the output folder does not exist.
 
 ### Fixed
 
@@ -40,6 +42,11 @@ income, and dates in one file read in two different orders.
   order for every row in a CSV, JSON, JSON Lines, Excel or QIF file. A file
   with dates written both ways stops with an error asking for `--dayfirst` or
   `--monthfirst` instead of being guessed at.
+- **OFX names and memos show `&`, `<` and `>` as written** (#12, #15). OFX
+  escapes them, and the loader kept the escaped form, so a chart read
+  `H&amp;M` instead of `H&M`.
+- **`vme render` reports an output folder that does not exist** (#13, #15)
+  with an `error: cannot write ...` line, instead of a Python traceback.
 
 ### Added
 
