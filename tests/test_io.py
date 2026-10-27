@@ -137,6 +137,22 @@ class TestOfx:
         with pytest.raises(LoaderError, match="STMTTRN"):
             load(write(tmp_path, "x.ofx", "OFXHEADER:100\n<OFX></OFX>"))
 
+    def test_html_entities_in_name_and_memo_are_unescaped(self, tmp_path):
+        ofx_content = """OFXHEADER:100
+<OFX><BANKMSGSRSV1><STMTTRNRS><STMTRS>
+<CURDEF>USD
+<BANKTRANLIST>
+<STMTTRN><TRNTYPE>POS<DTPOSTED>20260801<TRNAMT>-25.50<NAME>H&amp;M<MEMO>Clothes &amp; accessories
+<STMTTRN><TRNTYPE>POS<DTPOSTED>20260802<TRNAMT>-80.00<NAME>AT&amp;T<MEMO>Phone &gt; &lt;plan&gt;
+</BANKTRANLIST></STMTRS></STMTTRNRS></BANKMSGSRSV1></OFX>
+"""
+        rows = load(write(tmp_path, "entities.ofx", ofx_content))
+        assert len(rows) == 2
+        assert rows[0].label == "H&M"
+        assert rows[0].note == "Clothes & accessories"
+        assert rows[1].label == "AT&T"
+        assert rows[1].note == "Phone > <plan>"
+
 
 class TestQif:
     def test_reads_records(self, tmp_path):
