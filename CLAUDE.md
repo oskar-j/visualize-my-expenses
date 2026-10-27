@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 255 tests, ~5s
+uv run pytest                            # 312 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -63,6 +63,12 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
   Loaders emit `kind=AUTO` when the file did not say, and `apply_sign_convention` resolves every
   `AUTO` row at once (a file with any negative amount is read as a bank statement). A row that
   reaches the plotter still `AUTO`, or with a negative amount, is a bug — `problems()` reports both.
+- **Words never overrule a sign.** `looks_like_income` ("Salary", "Payroll") runs only inside
+  `apply_sign_convention` under `expenses`, i.e. for a file with no sign to go on. Don't move it
+  back into `coerce_row`: there it set an explicit kind, and "Income tax -500" became income.
+- **Date order is decided per file, not per row.** Loaders collect every record first, then call
+  `resolve_dayfirst` once (`infer_dayfirst` underneath) before coercing any row. A new loader that
+  coerces row by row brings back files with both orders mixed.
 - **Constructing `Expense` directly defaults to `EXPENSE`,** not `AUTO`. Income must say `kind="income"`.
 - **Currencies never convert themselves.** Rates come from the caller; nothing hits the network,
   so the same input always draws the same picture.

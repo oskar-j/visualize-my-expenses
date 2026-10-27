@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from ..models import Expense
+from ..tools import infer_dayfirst
 
-__all__ = ["LoaderError", "Format", "register", "FORMATS", "detect_format", "extensions_for"]
+__all__ = ["LoaderError", "Format", "register", "FORMATS", "detect_format", "extensions_for",
+           "resolve_dayfirst"]
 
 
 class LoaderError(ValueError):
@@ -83,6 +85,24 @@ def read_text(path: str, encoding: Optional[str] = None) -> str:
         except OSError as exc:
             raise LoaderError(f"cannot open {path}: {exc}") from exc
     raise LoaderError(f"cannot decode {path}: {last}")
+
+
+def resolve_dayfirst(path: str, dayfirst: Optional[bool],
+                     dates: Iterable[Any]) -> Optional[bool]:
+    """``dayfirst`` as given, or worked out once from every date in the file.
+
+    Loaders call this before building any row, so one file never mixes the two
+    orders (see :func:`vme.tools.infer_dayfirst`).
+    """
+    if dayfirst is not None:
+        return dayfirst
+    try:
+        return infer_dayfirst(dates)
+    except ValueError as exc:
+        raise LoaderError(
+            f"{path}: {exc}. Say which this file uses with --dayfirst or --monthfirst "
+            "(dayfirst=True or dayfirst=False from Python)."
+        ) from exc
 
 
 def require(module: str, extra: str, fmt: str) -> Any:

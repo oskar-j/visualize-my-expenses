@@ -24,6 +24,11 @@ def row(amount, kind=AUTO, currency="PLN", category="Food", date=None):
                    currency=currency, kind=kind, date=date)
 
 
+def named(amount, category, label):
+    return Expense(category=category, label=label, amount=Decimal(amount),
+                   currency="PLN", kind=AUTO)
+
+
 class TestSignConvention:
     def test_auto_reads_negatives_as_spending(self):
         out = apply_sign_convention([row("-100"), row("2000")])
@@ -52,6 +57,24 @@ class TestSignConvention:
 
     def test_amounts_come_out_unsigned(self):
         assert all(r.amount >= 0 for r in apply_sign_convention([row("-7"), row("7")]))
+
+    def test_in_a_statement_the_sign_beats_the_words(self):
+        # issue #4: "Income tax" and "sewage" used to become income
+        out = apply_sign_convention([named("-500", "Taxes", "Income tax"),
+                                     named("-80", "Utilities", "Water & sewage"),
+                                     named("3000", "Work", "Salary"),
+                                     named("-120", "Groceries", "Lidl")])
+        assert [r.kind for r in out] == [EXPENSE, EXPENSE, INCOME, EXPENSE]
+
+    def test_in_a_plain_list_income_words_mark_the_income(self):
+        out = apply_sign_convention([named("9800", "Income", "Salary"),
+                                     named("150", "Income", "Tax refund"),
+                                     named("500", "Taxes", "Income tax"),
+                                     named("80", "Utilities", "Water & sewage")])
+        assert [r.kind for r in out] == [INCOME, INCOME, EXPENSE, EXPENSE]
+
+    def test_expenses_still_reads_income_words(self):
+        assert apply_sign_convention([named("10", "Salary", "x")], "expenses")[0].kind == INCOME
 
     def test_an_unknown_convention_is_rejected(self):
         with pytest.raises(ValueError, match="unknown sign convention"):

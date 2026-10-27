@@ -7,8 +7,8 @@ import io as _io
 from typing import List, Optional
 
 from ..models import Expense
-from ..tools import coerce_row
-from .base import Format, LoaderError, read_text, register
+from ..tools import coerce_row, pick
+from .base import Format, LoaderError, read_text, register, resolve_dayfirst
 
 __all__ = ["load_csv"]
 
@@ -43,11 +43,15 @@ def load_csv(path: str, encoding: Optional[str] = None, delimiter: Optional[str]
             "    date,category,label,amount,currency"
         )
 
-    expenses: List[Expense] = []
+    records = []
     for number, row in enumerate(rows[1:], start=2):
         record = {key: value for key, value in zip(header, row) if key}
-        if not any((v or "").strip() for v in record.values()):
-            continue
+        if any((v or "").strip() for v in record.values()):
+            records.append((number, record))
+    dayfirst = resolve_dayfirst(path, dayfirst, (pick(r, "date") for _, r in records))
+
+    expenses: List[Expense] = []
+    for number, record in records:
         try:
             expenses.append(coerce_row(record, default_currency, dayfirst))
         except (ValueError, TypeError) as exc:

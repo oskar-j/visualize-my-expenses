@@ -24,6 +24,8 @@ __all__ = [
     "coerce_rows",
     "compact_money",
     "format_money",
+    "infer_dayfirst",
+    "looks_like_income",
     "month_bounds",
     "normalise_code",
     "parse_amount",
@@ -32,6 +34,7 @@ __all__ = [
     "parse_period",
     "period_label",
     "pick",
+    "raw_date",
     "shorten",
     "sniff_currency",
 ]
@@ -266,22 +269,109 @@ def period_label(start: _dt.date, end: _dt.date) -> str:
 # --------------------------------------------------------------------------- #
 
 
+#: Words that give the direction even inside a longer phrase ("Incoming transfer").
+#: "credit" and "debit" are not among them: in "Credit Card" they say how it was paid.
+_DIRECTION_WORDS = {
+    "incoming": INCOME, "inflow": INCOME, "inbound": INCOME,
+    "outgoing": EXPENSE, "outflow": EXPENSE, "outbound": EXPENSE,
+}
+
+
 def parse_kind(value: Any, default: Optional[str] = None) -> Optional[str]:
-    """Map a free-text direction (``'DEBIT'``, ``'in'``, ``'CRDT'``) to a kind."""
+    """Map a free-text direction (``'DEBIT'``, ``'in'``, ``'CRDT'``) to a kind.
+
+    One word is read generously (``'Credited'`` is income). A longer phrase
+    usually names the transaction rather than its direction, so it counts only
+    as a known phrase (``'Direct Dep'``) or through a word that cannot mean
+    anything else (``'Incoming transfer'``). ``'Credit Card'`` gives ``default``
+    and the amount's sign decides.
+    """
     if value is None:
         return default
-    token = re.sub(r"[^a-z+-]+", "", str(value).strip().lower())
+    text = str(value).strip().lower()
+    token = re.sub(r"[^a-z+-]+", "", text)
     if not token:
         return default
     if token in INCOME_WORDS:
         return INCOME
     if token in EXPENSE_WORDS:
         return EXPENSE
-    if token.startswith("cred") or token.startswith("inc"):
+    words = re.findall(r"[a-z]+", text)
+    if len(words) > 1:
+        found = {_DIRECTION_WORDS[word] for word in words if word in _DIRECTION_WORDS}
+        return found.pop() if len(found) == 1 else default
+    if token.startswith(("cred", "inc")):
         return INCOME
-    if token.startswith("deb") or token.startswith("exp"):
+    if token.startswith(("deb", "exp")):
         return EXPENSE
     return default
+
+
+#: Words that name income in a category or label ("Salary", "Payroll")...
+_INCOME_HINT = re.compile(
+    r"\b(?:income|incomes|salary|salaries|wage|wages|payroll|bonus|bonuses)\b")
+#: ...unless the same text names a cost ("Income tax", "Income protection insurance").
+_COST_HINT = re.compile(r"\b(?:tax|taxes|insurance|fee|fees)\b")
+
+
+def looks_like_income(category: Any = "", label: Any = "") -> bool:
+    """Whether a row's own words say it is income: ``Income``, ``Salary``, ``Payroll``.
+
+    This is a last resort, for a plain list of positive amounts where nothing
+    else marks the income; :func:`vme.data_store.apply_sign_convention` never
+    lets it overrule a sign. Whole words only, so "Water & sewage" is not a wage.
+    The category speaks first and the label only when the category says nothing
+    either way: category "Income" with label "Tax refund" is income, category
+    "Taxes" with label "Income tax" is not.
+    """
+    for text in (category, label):
+        words = str(text or "").lower()
+        if _COST_HINT.search(words):
+            return False
+        if _INCOME_HINT.search(words):
+            return True
+    return False
+
+
+#: A numeric date whose first two fields could be either day or month:
+#: 03/04/2026, 03-04-2026, 03/04/26. A two-digit year after dashes is not
+#: one of them -- "26-04-03" is read year-first.
+_DAY_MONTH_RE = re.compile(r"^\s*(\d{1,2})([/-])(\d{1,2})\2(\d{4}|\d{2})(?!\d)")
+
+
+def infer_dayfirst(values: Iterable[Any]) -> Optional[bool]:
+    """Work out the day/month order from a whole column of dates at once.
+
+    One date alone cannot tell 03/04 from 04/03, and deciding row by row mixes
+    both orders in one file: 01/02 read day-first next to 01/13 read
+    month-first. One 13/01 makes the column day-first (``True``), one 01/13
+    month-first (``False``). ``None`` when every date could be either.
+
+    :raises ValueError: when the column holds both, naming one of each.
+    """
+    day_first: Optional[str] = None
+    month_first: Optional[str] = None
+    for value in values:
+        if not isinstance(value, str):
+            continue
+        match = _DAY_MONTH_RE.match(value)
+        if match is None or (match.group(2) == "-" and len(match.group(4)) == 2):
+            continue
+        first, second = int(match.group(1)), int(match.group(3))
+        if first > 12 >= second:
+            day_first = day_first or value.strip()
+        elif second > 12 >= first:
+            month_first = month_first or value.strip()
+        if day_first and month_first:
+            raise ValueError(
+                f"dates are written both day-first ({day_first!r}) and "
+                f"month-first ({month_first!r})"
+            )
+    if day_first:
+        return True
+    if month_first:
+        return False
+    return None
 
 
 def shorten(text: str, width: int = 28) -> str:
@@ -303,27 +393,45 @@ def _mapping_from(row: Any) -> Optional[Mapping[str, Any]]:
     return None
 
 
+def _as_mapping(row: Any) -> Mapping[str, Any]:
+    mapping = _mapping_from(row)
+    if mapping is not None:
+        return mapping
+    if isinstance(row, Sequence) and not isinstance(row, (str, bytes)):
+        keys = ("category", "label", "amount", "currency", "date", "kind")
+        return dict(zip(keys, row))
+    raise TypeError(
+        f"cannot read a row from {type(row).__name__}; pass a dict, a namedtuple, "
+        "an Expense, or a sequence of (category, label, amount, currency)"
+    )
+
+
+def raw_date(row: Any) -> Any:
+    """The date field of a row not yet coerced, as written; ``None`` if there is none."""
+    if isinstance(row, Expense):
+        return None
+    try:
+        return pick(_as_mapping(row), "date")
+    except TypeError:
+        return None
+
+
 def coerce_row(row: Any, default_currency: str = "USD",
                dayfirst: Optional[bool] = None) -> Expense:
     """Turn a dict / namedtuple / dataclass / sequence into an :class:`Expense`.
 
-    The sign of the amount is preserved here (negative stays negative); direction
-    is settled later by :func:`vme.data_store.apply_sign_convention`, which needs
-    to see the whole file to choose a convention.
+    The sign of the amount is preserved here (negative stays negative), and a
+    row whose source did not state a direction stays ``AUTO``. Direction is
+    settled later by :func:`vme.data_store.apply_sign_convention`, which needs to
+    see the whole file to choose a convention.
+
+    ``dayfirst`` should be decided for the whole file (:func:`infer_dayfirst`);
+    left as ``None`` here, an ambiguous date is read day-first.
     """
     if isinstance(row, Expense):
         return row
 
-    mapping = _mapping_from(row)
-    if mapping is None:
-        if isinstance(row, Sequence) and not isinstance(row, (str, bytes)):
-            keys = ("category", "label", "amount", "currency", "date", "kind")
-            mapping = dict(zip(keys, row))
-        else:
-            raise TypeError(
-                f"cannot read a row from {type(row).__name__}; pass a dict, a namedtuple, "
-                "an Expense, or a sequence of (category, label, amount, currency)"
-            )
+    mapping = _as_mapping(row)
 
     raw_amount = pick(mapping, "amount")
     if raw_amount is None:
@@ -335,8 +443,6 @@ def coerce_row(row: Any, default_currency: str = "USD",
         default_currency,
     )
     kind = parse_kind(pick(mapping, "kind"))
-    if kind is None and _looks_like_income(mapping):
-        kind = INCOME
 
     label = pick(mapping, "label", "") or ""
     category = pick(mapping, "category") or (label if label else UNCATEGORIZED)
@@ -352,15 +458,22 @@ def coerce_row(row: Any, default_currency: str = "USD",
     )
 
 
-def _looks_like_income(mapping: Mapping[str, Any]) -> bool:
-    text = " ".join(
-        str(pick(mapping, key, "") or "") for key in ("category", "label")
-    ).lower()
-    return any(word in text for word in ("income", "salary", "wage", "payroll", "bonus"))
-
-
 def coerce_rows(rows: Optional[Iterable[Any]], default_currency: str = "USD",
                 dayfirst: Optional[bool] = None) -> list[Expense]:
+    """Coerce every row, reading ambiguous dates the same way throughout.
+
+    Without ``dayfirst`` the order is worked out once from all the rows
+    (:func:`infer_dayfirst`).
+    """
     if rows is None:
         return []
+    rows = list(rows)
+    if dayfirst is None:
+        try:
+            dayfirst = infer_dayfirst(raw_date(row) for row in rows)
+        except ValueError as exc:
+            raise ValueError(
+                f"{exc}. Write the dates as YYYY-MM-DD or datetime.date, "
+                "or pass dayfirst=True or dayfirst=False."
+            ) from exc
     return [coerce_row(row, default_currency, dayfirst) for row in rows]

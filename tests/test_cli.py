@@ -176,6 +176,35 @@ class TestOtherCommands:
         result = run("check", mixed, "-c", "PLN")
         assert result.exit_code == 2 and "EUR" in result.output
 
+    def test_a_statement_keeps_income_tax_on_the_spending_side(self, run, tmp_path):
+        path = tmp_path / "statement.csv"
+        path.write_text("date,category,label,amount\n"
+                        "2026-08-01,Work,Salary,3000\n"
+                        "2026-08-02,Taxes,Income tax,-500\n"
+                        "2026-08-03,Utilities,Water & sewage,-80\n"
+                        "2026-08-04,Groceries,Lidl,-120\n", encoding="utf-8")
+        result = run("check", path)
+        assert result.exit_code == 0
+        assert "income $3,000" in result.output and "spent $700" in result.output
+
+    def test_a_us_file_keeps_the_whole_month(self, run, tmp_path):
+        path = tmp_path / "us.csv"
+        path.write_text("date,label,amount\n" + "".join(
+            f"01/{d:02d}/2026,Shop,-10\n" for d in (2, 5, 10, 14, 20, 28)), encoding="utf-8")
+        result = run("render", path, "-m", "2026-01", "-o", tmp_path / "us.png")
+        assert result.exit_code == 0 and "6 rows" in result.output
+
+    @pytest.mark.parametrize("command", ["render", "summary", "check"])
+    def test_mixed_date_orders_ask_for_a_flag_every_command_has(self, run, tmp_path,
+                                                                 command):
+        path = tmp_path / "m.csv"
+        path.write_text("date,label,amount\n13/01/2026,Shop,-10\n01/13/2026,Shop,-10\n",
+                        encoding="utf-8")
+        output = ("-o", tmp_path / "m.png") if command == "render" else ()
+        result = run(command, path, *output)
+        assert result.exit_code == 2 and "--monthfirst" in result.output
+        assert run(command, path, "--dayfirst", *output).exit_code == 0
+
     def test_formats_lists_every_loader(self, run):
         output = run("formats").output
         for name in ("csv", "json", "ofx", "qif", "camt", "excel"):

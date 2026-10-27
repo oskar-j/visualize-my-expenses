@@ -24,6 +24,10 @@ from .visualizer import HTML_SUFFIXES, IMAGE_SUFFIXES, Visualizer
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], max_content_width=100)
 
+DATE_ORDER = click.option(
+    "--dayfirst/--monthfirst", default=None,
+    help="How to read dates like 03/04/2026. Worked out from the file when omitted.")
+
 
 def _fail(message: str, hint: str = "") -> None:
     click.secho(f"error: {message}", fg="red", err=True)
@@ -128,8 +132,7 @@ def main(ctx: click.Context) -> None:
 @click.option("--sheet", help="Worksheet name, for Excel input.")
 @click.option("--encoding", help="Input encoding. Autodetected when omitted.")
 @click.option("--delimiter", help="Column separator, for CSV input. Sniffed when omitted.")
-@click.option("--dayfirst/--monthfirst", default=None,
-              help="How to read ambiguous dates like 03/04/2026.")
+@DATE_ORDER
 @click.option("--open", "open_after", is_flag=True, help="Open the result when done.")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the output path.")
 @click.option("-v", "--verbose", is_flag=True, help="Explain what is being filtered out.")
@@ -220,15 +223,16 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
               show_default=True)
 @click.option("--sheet", help="Worksheet name, for Excel input.")
 @click.option("--encoding", help="Input encoding. Autodetected when omitted.")
+@DATE_ORDER
 @click.option("-v", "--verbose", is_flag=True)
 def summary(source: str, fmt: Optional[str], currency: str, rates: Tuple[str, ...],
             rates_file: Optional[str],
             month: Optional[str], year: Optional[str], period: Optional[str],
             sign: str, sheet: Optional[str], encoding: Optional[str],
-            verbose: bool) -> None:
+            dayfirst: Optional[bool], verbose: bool) -> None:
     """Print the breakdown as a table, without drawing anything."""
-    loader_options = {k: v for k, v in (("sheet", sheet), ("encoding", encoding))
-                      if v is not None}
+    loader_options = {k: v for k, v in (("sheet", sheet), ("encoding", encoding),
+                                        ("dayfirst", dayfirst)) if v is not None}
     visualizer = _build(source, fmt, currency, loader_options, dict(
         sign=sign, rates=_parse_rates(rates, rates_file, currency),
         period=_period(month, year, period), verbose=verbose,
@@ -245,9 +249,12 @@ def summary(source: str, fmt: Optional[str], currency: str, rates: Tuple[str, ..
 @click.option("-c", "--currency", default="USD", show_default=True)
 @click.option("--sign", type=click.Choice(SIGN_CONVENTIONS), default="auto",
               show_default=True)
-def check(source: str, fmt: Optional[str], currency: str, sign: str) -> None:
+@DATE_ORDER
+def check(source: str, fmt: Optional[str], currency: str, sign: str,
+          dayfirst: Optional[bool]) -> None:
     """Read SOURCE and report anything that would stop it being plotted."""
-    visualizer = _build(source, fmt, currency, {}, dict(sign=sign))
+    loader_options = {} if dayfirst is None else {"dayfirst": dayfirst}
+    visualizer = _build(source, fmt, currency, loader_options, dict(sign=sign))
     try:
         visualizer.prepare()
     except (ValueError, CurrencyError) as exc:

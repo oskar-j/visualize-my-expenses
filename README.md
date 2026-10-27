@@ -94,8 +94,16 @@ date,category,label,amount,currency,kind
 
 `category` groups, `label` is the detail inside the group, `kind` is `income` or
 `expense`. Leave `kind` out and the direction is inferred: if any amount is
-negative the file is read as a bank statement (negative = money out); if none
-is, every row is spending.
+negative the file is read as a bank statement, where the sign alone decides
+(negative = money out). If none is, every row is spending except the ones whose
+category or label names income — `Income`, `Salary`, `Wages`, `Payroll`,
+`Bonus` — and does not also name a cost, so `Income tax` stays spending.
+
+Dates such as `03/04/2026` are read the same way through the whole file. A
+single date that can only be read one way (`13/04/2026` or `04/13/2026`)
+settles the order. If every date could go either way, they are read day-first;
+`--monthfirst` or `--dayfirst` says otherwise. A file that has dates written
+both ways is refused rather than guessed at.
 
 ## Multiple currencies
 

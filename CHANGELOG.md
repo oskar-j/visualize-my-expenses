@@ -10,6 +10,59 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.1.2]
+
+Two fixes for charts that came out wrong without any error: expenses drawn as
+income, and dates in one file read in two different orders. Also two smaller
+fixes, contributed in #15: OFX names written with `&amp;`, and a traceback
+when the output folder does not exist.
+
+### Fixed
+
+- **A bank statement no longer turns expenses into income because of their
+  names** (#4). A payment labelled "Income tax" or "Water & sewage" (which
+  contains "wage") was drawn as income, and so was a row whose type column said
+  "Credit Card". In a statement, where amounts carry a sign, the sign now
+  decides on its own. In a plain list of positive amounts, a row still counts
+  as income when its category or label names income ("Income", "Salary",
+  "Wages", "Payroll", "Bonus"), but only as a whole word and not when the same
+  text names a cost, so "Income tax" stays spending. The category is read
+  before the label: category "Income" with label "Tax refund" is income.
+- **A type or direction column with several words no longer decides the
+  direction by its first letters** (#4). "Credit Card" and "Debit Card" say
+  how a purchase was paid, not which way the money went, so the amount's sign
+  decides. One-word values ("Credit", "DBIT", "Credited") and phrases with an
+  unmistakable direction ("Incoming transfer", "Outgoing transfer") work as
+  before.
+- **Dates are read in one order for the whole file** (#5). Without
+  `--dayfirst` or `--monthfirst`, each date was read on its own, so a US
+  statement had 01/02 to 01/12 read as 1 February to 1 December while 01/13
+  onwards stayed in January, and `--month` quietly dropped those rows. Now a
+  single date that can only be read one way (13/01 or 01/13) settles the
+  order for every row in a CSV, JSON, JSON Lines, Excel or QIF file. A file
+  with dates written both ways stops with an error asking for `--dayfirst` or
+  `--monthfirst` instead of being guessed at.
+- **OFX names and memos show `&`, `<` and `>` as written** (#12, #15). OFX
+  escapes them, and the loader kept the escaped form, so a chart read
+  `H&amp;M` instead of `H&M`.
+- **`vme render` reports an output folder that does not exist** (#13, #15)
+  with an `error: cannot write ...` line, instead of a Python traceback.
+
+### Added
+
+- **`--dayfirst/--monthfirst` on `vme summary` and `vme check`**, so the flag
+  that the new date error asks for exists on every command that reads a file.
+
+### Changed
+
+- **In the Python API, rows read with no direction stay `AUTO` until
+  `apply_sign_convention`.** `coerce_row` used to mark a row that looked like
+  income as income straight away. It now leaves that call to the sign
+  convention, which is the step that knows whether the file is signed.
+  `Visualizer` users see no difference.
+- **`coerce_rows` works out the date order across all the rows it is given**,
+  as the loaders do, and raises `ValueError` when they disagree.
+
 ## [0.1.1]
 
 The changelog release: from this version on, every release says what changed,
@@ -85,5 +138,6 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.1.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.2
 [0.1.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.1
 [0.1.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.0

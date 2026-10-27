@@ -6,7 +6,7 @@ from typing import List, Optional
 
 from ..models import EXPENSE, INCOME, Expense
 from ..tools import parse_amount, parse_date
-from .base import Format, LoaderError, read_text, register
+from .base import Format, LoaderError, read_text, register, resolve_dayfirst
 
 __all__ = ["load_qif"]
 
@@ -14,7 +14,7 @@ __all__ = ["load_qif"]
 def load_qif(path: str, encoding: Optional[str] = None, default_currency: str = "USD",
              dayfirst: Optional[bool] = None, **_: object) -> List[Expense]:
     text = read_text(path, encoding)
-    expenses: List[Expense] = []
+    records: List[dict[str, str]] = []
     record: dict[str, str] = {}
 
     for raw in text.splitlines():
@@ -24,18 +24,21 @@ def load_qif(path: str, encoding: Optional[str] = None, default_currency: str = 
         if line.startswith("!"):  # !Type:Bank, !Account, ...
             continue
         if line.startswith("^"):
-            entry = _build(record, default_currency, dayfirst)
-            if entry is not None:
-                expenses.append(entry)
+            records.append(record)
             record = {}
             continue
         code, value = line[0], line[1:].strip()
         # Split transactions repeat S/E/$ -- keep the first, note the rest.
         record.setdefault(code, value)
+    records.append(record)
 
-    entry = _build(record, default_currency, dayfirst)
-    if entry is not None:
-        expenses.append(entry)
+    # Quicken's own 8/15'26 is always month-first; only 08/15/2026 needs this.
+    dayfirst = resolve_dayfirst(path, dayfirst, (r.get("D") for r in records))
+    expenses: List[Expense] = []
+    for record in records:
+        entry = _build(record, default_currency, dayfirst)
+        if entry is not None:
+            expenses.append(entry)
 
     if not expenses:
         raise LoaderError(f"{path}: found no QIF transactions (records end with a '^' line)")

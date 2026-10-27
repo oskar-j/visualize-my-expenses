@@ -6,8 +6,8 @@ import json
 from typing import Any, List, Optional
 
 from ..models import Expense
-from ..tools import coerce_row
-from .base import Format, LoaderError, read_text, register
+from ..tools import coerce_row, raw_date
+from .base import Format, LoaderError, read_text, register, resolve_dayfirst
 
 __all__ = ["load_json", "load_jsonl"]
 
@@ -40,6 +40,7 @@ def load_json(path: str, encoding: Optional[str] = None, default_currency: str =
         raise LoaderError(f"{path}: invalid JSON at line {exc.lineno}: {exc.msg}") from exc
 
     rows = _extract(document, path)
+    dayfirst = resolve_dayfirst(path, dayfirst, (raw_date(row) for row in rows))
     expenses: List[Expense] = []
     for index, row in enumerate(rows):
         try:
@@ -54,15 +55,21 @@ def load_json(path: str, encoding: Optional[str] = None, default_currency: str =
 def load_jsonl(path: str, encoding: Optional[str] = None, default_currency: str = "USD",
                dayfirst: Optional[bool] = None, **_: object) -> List[Expense]:
     text = read_text(path, encoding)
-    expenses: List[Expense] = []
+    records = []
     for number, line in enumerate(text.splitlines(), start=1):
         line = line.strip()
         if not line:
             continue
         try:
-            expenses.append(coerce_row(json.loads(line), default_currency, dayfirst))
+            records.append((number, json.loads(line)))
         except json.JSONDecodeError as exc:
             raise LoaderError(f"{path}:{number}: invalid JSON: {exc.msg}") from exc
+    dayfirst = resolve_dayfirst(path, dayfirst, (raw_date(r) for _, r in records))
+
+    expenses: List[Expense] = []
+    for number, record in records:
+        try:
+            expenses.append(coerce_row(record, default_currency, dayfirst))
         except (ValueError, TypeError) as exc:
             raise LoaderError(f"{path}:{number}: {exc}") from exc
     if not expenses:
