@@ -48,13 +48,47 @@ class TestParseAmount:
         ("1,5", "1.5"),                   # a lone comma with 1 digit: decimal
         ("1,50", "1.50"),                 # ... with 2 digits: still decimal
         ("2,500", "2500"),                # ... with 3 digits: grouped thousands
+        ("1.234.567", "1234567"),         # dots grouping thousands, no decimals
+        (".50", "0.50"),                  # a leading decimal point ...
+        ("$.50", "0.50"),
+        ("-.50", "-0.50"),
+        ("CHF 1'234.50", "1234.50"),
         (12.5, "12.5"),
         (Decimal("7.25"), "7.25"),
     ])
     def test_reads(self, text, expected):
         assert parse_amount(text) == Decimal(expected)
 
-    @pytest.mark.parametrize("bad", ["", "   ", None, "abc", "zł"])
+    @pytest.mark.parametrize("text,expected", [
+        # issue #6: the dot of an abbreviation was read as a decimal point
+        ("Rs. 500", "500"),
+        ("Rs. 1,500", "1500"),
+        ("Rs.500", "500"),
+        ("kr. 500", "500"),
+        ("500 kr.", "500"),
+        ("kr. 1.234,50", "1234.50"),
+        ("S/. 1,500.00", "1500.00"),
+        ("(Rs. 500)", "-500"),
+        ("USD -12.00", "-12.00"),
+    ])
+    def test_a_currency_around_the_number_is_dropped_whole(self, text, expected):
+        assert parse_amount(text) == Decimal(expected)
+
+    @pytest.mark.parametrize("text,expected", [
+        ("1.5E+3", "1500"), ("1,5E+3", "1500"), ("2.5e-2", "0.025"), ("1e3", "1000"),
+    ])
+    def test_exponent_notation(self, text, expected):
+        amount = parse_amount(text)
+        assert amount == Decimal(expected)
+        assert "E" not in str(amount)              # written out, as money is
+
+    @pytest.mark.parametrize("text,expected", [
+        ("500,-", "500"), ("500.-", "500"), ("20,- zł", "20"), ("20,– zł", "20"),
+    ])
+    def test_a_whole_amount_written_with_a_dash_is_not_negative(self, text, expected):
+        assert parse_amount(text) == Decimal(expected)
+
+    @pytest.mark.parametrize("bad", ["", "   ", None, "abc", "zł", "Rs.", "-"])
     def test_rejects(self, bad):
         with pytest.raises(ValueError):
             parse_amount(bad)
@@ -82,6 +116,24 @@ class TestParseDate:
     def test_ambiguous_respects_dayfirst(self):
         assert parse_date("03/04/2026", dayfirst=True) == _dt.date(2026, 4, 3)
         assert parse_date("03/04/2026", dayfirst=False) == _dt.date(2026, 3, 4)
+
+    @pytest.mark.parametrize("text", [
+        # issue #10: a time after a non-ISO date used to lose the whole date
+        "15.08.2026 10:23", "15/08/2026 10:23", "08/15/2026 10:23:00",
+        "08/15/2026 10:23:00 PM", "15 Aug 2026 10:23", "2026-08-15 10:23",
+        "15.08.2026T10:23:45Z", "2026-08-15T09:30:00+02:00",
+        "Aug 15, 2026", "August 15, 2026", "Aug 15, 2026, 9:05 am",
+    ])
+    def test_a_time_after_the_date(self, text):
+        assert parse_date(text) == _dt.date(2026, 8, 15)
+
+    def test_a_time_keeps_the_day_month_order(self):
+        assert parse_date("03/04/2026 08:00", dayfirst=False) == _dt.date(2026, 3, 4)
+        assert parse_date("03/04/2026 08:00", dayfirst=True) == _dt.date(2026, 4, 3)
+
+    @pytest.mark.parametrize("text", ["10:23", "15.08.2026 soon"])
+    def test_a_time_alone_or_trailing_words_are_not_dates(self, text):
+        assert parse_date(text) is None
 
     @pytest.mark.parametrize("blank", [None, "", "   "])
     def test_blank_is_none(self, blank):

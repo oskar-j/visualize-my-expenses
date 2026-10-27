@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 import datetime as _dt
+import warnings
 from decimal import Decimal
 
 import pytest
 
-from vme.io import FORMATS, LoaderError, detect_format, load
+from vme.io import FORMATS, LoaderError, LoaderWarning, detect_format, load
 from vme.models import INCOME
 
 OFX = """OFXHEADER:100
@@ -258,6 +259,60 @@ class TestDateOrder:
         path = write(tmp_path, "a.csv", body)
         assert load(path, dayfirst=False)[0].date == _dt.date(2026, 3, 4)
         assert load(path, dayfirst=True)[0].date == _dt.date(2026, 4, 3)
+
+
+class TestDates:
+    def test_a_bank_export_with_times_keeps_its_dates(self, tmp_path):
+        # issue #10: these all loaded undated, so --month left them out
+        path = write(tmp_path, "pl.csv", "Data;Opis;Kwota\n"
+                                         "15.08.2026 10:23;Lidl;-45,20\n"
+                                         "16.08.2026 18:02;Orlen;-210,00\n")
+        assert [r.date for r in load(path)] == [_dt.date(2026, 8, 15), _dt.date(2026, 8, 16)]
+
+    def test_an_unreadable_date_is_a_note_naming_file_and_line(self, tmp_path):
+        path = write(tmp_path, "b.csv", "date,label,amount\n"
+                                        "2026-08-01,Rent,-2000\n"
+                                        "pending,Lidl,-45\n")
+        with pytest.warns(LoaderWarning, match=r"b\.csv:3: cannot read the date 'pending'\. "
+                                                r"That row loads without a date"):
+            rows = load(path)
+        assert rows[1].date is None and rows[1].amount == Decimal("-45")
+
+    def test_several_unread_dates_are_one_note(self, tmp_path):
+        path = write(tmp_path, "b.csv", "date,label,amount\n"
+                                        "soon,Rent,-2000\nlater,Lidl,-45\nnever,Fuel,-90\n")
+        with pytest.warns(LoaderWarning) as raised:
+            load(path)
+        notes = [w for w in raised if issubclass(w.category, LoaderWarning)]
+        assert len(notes) == 1 and "'soon' (and 2 more)" in str(notes[0].message)
+
+    def test_blank_dates_are_not_worth_a_note(self, tmp_path):
+        path = write(tmp_path, "b.csv", "date,label,amount\n,Rent,-2000\n  ,Lidl,-45\n")
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", LoaderWarning)
+            assert [r.date for r in load(path)] == [None, None]
+
+    def test_json_names_the_row(self, tmp_path):
+        path = write(tmp_path, "a.json", '[{"amount": 1, "date": "2026-08-01"},'
+                                         ' {"amount": 2, "date": "tbd"}]')
+        with pytest.warns(LoaderWarning, match=r"a\.json: row 1: cannot read the date 'tbd'"):
+            load(path)
+
+    def test_qif_names_the_line_of_the_date(self, tmp_path):
+        body = "!Type:Bank\nD08/01/2026\nT-10.00\n^\nDsoon\nT-20.00\n^\n"
+        with pytest.warns(LoaderWarning, match=r"q\.qif:5: cannot read the date 'soon'"):
+            load(write(tmp_path, "q.qif", body))
+
+    def test_excel_names_sheet_and_row(self, tmp_path):
+        openpyxl = pytest.importorskip("openpyxl")
+        path = tmp_path / "x.xlsx"
+        book = openpyxl.Workbook()
+        book.active.title = "Aug"
+        book.active.append(["date", "label", "amount"])
+        book.active.append([45306, "Lidl", -45])   # a date cell saved as a plain number
+        book.save(path)
+        with pytest.warns(LoaderWarning, match=r"x\.xlsx:Aug:2: cannot read the date 45306"):
+            load(str(path))
 
 
 class TestDetection:

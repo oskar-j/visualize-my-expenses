@@ -187,6 +187,24 @@ class TestOtherCommands:
         assert result.exit_code == 0
         assert "income $3,000" in result.output and "spent $700" in result.output
 
+    def test_rupee_amounts_are_not_a_thousand_times_too_small(self, run, tmp_path):
+        path = tmp_path / "inr.csv"
+        path.write_text("date,label,amount\n"
+                        '2026-08-01,Rent,"Rs. 1,000"\n'
+                        "2026-08-02,Tea,Rs. 500\n", encoding="utf-8")
+        result = run("check", path, "-c", "INR")
+        assert result.exit_code == 0 and "spent ₹1,500" in result.output
+
+    @pytest.mark.parametrize("command", ["render", "summary", "check"])
+    def test_an_unreadable_date_is_a_note_not_an_error(self, run, tmp_path, command):
+        path = tmp_path / "b.csv"
+        path.write_text("date,label,amount\n2026-08-01,Rent,-2000\npending,Lidl,-45\n",
+                        encoding="utf-8")
+        output = ("-o", tmp_path / "b.png") if command == "render" else ()
+        result = run(command, path, *output)
+        assert result.exit_code == 0
+        assert "note: " in result.output and "b.csv:3: cannot read the date" in result.output
+
     def test_a_us_file_keeps_the_whole_month(self, run, tmp_path):
         path = tmp_path / "us.csv"
         path.write_text("date,label,amount\n" + "".join(

@@ -10,6 +10,42 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.1.3]
+
+Amounts and dates the way bank exports actually write them: a currency
+abbreviation no longer shrinks an amount a thousandfold, a time after the date
+no longer loses the date, and a date that still cannot be read is reported
+instead of disappearing.
+
+### Fixed
+
+- **A currency written with a dot before the amount no longer moves the
+  decimal point** (#6). `Rs. 500` and `kr. 500` were read as 0.5, and
+  `Rs. 1,500` as 1.5, because the dot of the abbreviation was taken for a
+  decimal point. A currency around the number is now dropped whole, dot
+  included, while a real leading decimal point (`.50`, `$.50`) still counts.
+- **Exponent notation is read as a number** (#6). `1.5E+3`, as spreadsheets
+  write large or small values, was read as 1.53; it is now 1500.
+- **`1.234.567` is read as 1234567** (#6), with the dots grouping thousands,
+  instead of being refused.
+- **`500,-` is 500, not −500.** The dash after the comma is the usual way to
+  write a whole amount in German, Polish and Scandinavian prices, but it was
+  read as a trailing minus. One such row also made `auto` read the whole file
+  as a bank statement, turning every other row into income. `120.00-` is still
+  negative.
+- **A time after the date no longer loses the date** (#10). `15.01.2024 10:23`,
+  `01/15/2024 10:23:00 PM` and similar loaded with no date at all, so
+  `--month`, `--year` and `--period` left those rows out. `Jan 15, 2024` and
+  `January 15, 2024` are read now too.
+
+### Added
+
+- **A note for every date that cannot be read** (#10). Such a row still loads,
+  undated, but the CLI now says so on every command that reads a file, naming
+  the file and line: `note: bank.csv:5: cannot read the date 'pending' ...`.
+  From Python it is a `vme.io.LoaderWarning`. A blank date cell is not
+  reported.
+
 ## [0.1.2]
 
 Two fixes for charts that came out wrong without any error: expenses drawn as
@@ -138,6 +174,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.1.3]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.3
 [0.1.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.2
 [0.1.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.1
 [0.1.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.0

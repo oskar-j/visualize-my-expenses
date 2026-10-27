@@ -17,7 +17,7 @@ import click
 from . import __version__
 from .currencies import CURRENCIES, RateError, load_rates
 from .data_store import SIGN_CONVENTIONS, CurrencyError
-from .io import FORMATS, LoaderError, describe_formats
+from .io import FORMATS, LoaderError, LoaderWarning, describe_formats
 from .plotting import RenderWarning
 from .theme import THEMES
 from .visualizer import HTML_SUFFIXES, IMAGE_SUFFIXES, Visualizer
@@ -347,13 +347,22 @@ def sample(destination: str, kind: str, force: bool) -> None:
 
 def _build(source: str, fmt: Optional[str], currency: str,
            loader_options: Dict[str, Any], kwargs: Dict[str, Any]) -> Visualizer:
-    try:
-        return Visualizer.from_file(source, fmt=fmt, currency=currency,
-                                    loader_options=loader_options, **kwargs)
-    except LoaderError as exc:
-        _fail(str(exc))
-    except (ValueError, TypeError) as exc:
-        _fail(f"{source}: {exc}")
+    with warnings.catch_warnings(record=True) as raised:
+        warnings.simplefilter("always", LoaderWarning)
+        try:
+            visualizer = Visualizer.from_file(source, fmt=fmt, currency=currency,
+                                              loader_options=loader_options, **kwargs)
+        except LoaderError as exc:
+            _fail(str(exc))
+        except (ValueError, TypeError) as exc:
+            _fail(f"{source}: {exc}")
+    for warning in raised:
+        if issubclass(warning.category, LoaderWarning):
+            click.secho(f"note: {warning.message}", fg="yellow", err=True)
+        else:  # not ours to reword: show it as Python would have
+            warnings.showwarning(warning.message, warning.category,
+                                 warning.filename, warning.lineno)
+    return visualizer
 
 
 def _totals_line(totals: Dict[str, Any], currency: str, count: int) -> str:
