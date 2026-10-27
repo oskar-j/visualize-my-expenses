@@ -8,7 +8,14 @@ from typing import List, Optional
 
 from ..models import Expense
 from ..tools import coerce_row, pick
-from .base import Format, LoaderError, read_text, register, resolve_dayfirst
+from .base import (
+    Format,
+    LoaderError,
+    read_text,
+    register,
+    resolve_dayfirst,
+    warn_unread_dates,
+)
 
 __all__ = ["load_csv"]
 
@@ -58,6 +65,8 @@ def load_csv(path: str, encoding: Optional[str] = None, delimiter: Optional[str]
             raise LoaderError(f"{path}:{number}: {exc}") from exc
     if not expenses:
         raise LoaderError(f"{path} has a header but no rows")
+    warn_unread_dates((f"{path}:{number}", pick(record, "date"), expense.date)
+                      for (number, record), expense in zip(records, expenses))
     return expenses
 
 

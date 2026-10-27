@@ -7,7 +7,14 @@ from typing import Any, List, Optional
 
 from ..models import Expense
 from ..tools import coerce_row, raw_date
-from .base import Format, LoaderError, read_text, register, resolve_dayfirst
+from .base import (
+    Format,
+    LoaderError,
+    read_text,
+    register,
+    resolve_dayfirst,
+    warn_unread_dates,
+)
 
 __all__ = ["load_json", "load_jsonl"]
 
@@ -49,6 +56,8 @@ def load_json(path: str, encoding: Optional[str] = None, default_currency: str =
             raise LoaderError(f"{path}: row {index}: {exc}") from exc
     if not expenses:
         raise LoaderError(f"{path} contains no rows")
+    warn_unread_dates((f"{path}: row {index}", raw_date(row), expense.date)
+                      for index, (row, expense) in enumerate(zip(rows, expenses)))
     return expenses
 
 
@@ -74,6 +83,8 @@ def load_jsonl(path: str, encoding: Optional[str] = None, default_currency: str 
             raise LoaderError(f"{path}:{number}: {exc}") from exc
     if not expenses:
         raise LoaderError(f"{path} contains no rows")
+    warn_unread_dates((f"{path}:{number}", raw_date(record), expense.date)
+                      for (number, record), expense in zip(records, expenses))
     return expenses
 
 

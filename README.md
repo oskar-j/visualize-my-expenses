@@ -81,7 +81,8 @@ from the file name, and `--format` overrides the guess.
 Column names are matched loosely, so a bank export usually works untouched —
 `Posted Date`, `Description`, `Transaction Amount`, `Debit/Credit`, `kwota` and
 `waluta` are all understood. Amounts written as `1,234.56`, `1.234,56`,
-`1 234,56`, `(12.00)`, `120.00-` or `$1,234.56` all parse.
+`1 234,56`, `1.234.567`, `(12.00)`, `120.00-`, `500,-`, `$1,234.56`,
+`Rs. 1,500` or `1.5E+3` all parse.
 
 The minimum a CSV needs is an amount:
 
@@ -103,7 +104,10 @@ Dates such as `03/04/2026` are read the same way through the whole file. A
 single date that can only be read one way (`13/04/2026` or `04/13/2026`)
 settles the order. If every date could go either way, they are read day-first;
 `--monthfirst` or `--dayfirst` says otherwise. A file that has dates written
-both ways is refused rather than guessed at.
+both ways is refused rather than guessed at. A time after the date
+(`15.08.2026 10:23`) is ignored. A date that cannot be read at all is reported
+as a note, with its file and line; the row still loads, but without a date, so
+`--month`, `--year` and `--period` leave it out.
 
 ## Multiple currencies
 

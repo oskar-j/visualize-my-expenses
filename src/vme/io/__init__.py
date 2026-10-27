@@ -13,9 +13,10 @@ from typing import List, Optional
 
 from ..models import Expense
 from . import camt, csv_loader, excel, json_loader, ofx, qif  # noqa: F401  (registration)
-from .base import FORMATS, Format, LoaderError, detect_format
+from .base import FORMATS, Format, LoaderError, LoaderWarning, detect_format
 
-__all__ = ["FORMATS", "Format", "LoaderError", "detect_format", "load", "describe_formats"]
+__all__ = ["FORMATS", "Format", "LoaderError", "LoaderWarning", "detect_format", "load",
+           "describe_formats"]
 
 
 def load(path: str, fmt: Optional[str] = None, **options: object) -> List[Expense]:

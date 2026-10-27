@@ -2,18 +2,24 @@
 
 from __future__ import annotations
 
+import datetime as _dt
 import os
+import warnings
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 from ..models import Expense
 from ..tools import infer_dayfirst
 
-__all__ = ["LoaderError", "Format", "register", "FORMATS", "detect_format", "extensions_for",
-           "resolve_dayfirst"]
+__all__ = ["LoaderError", "LoaderWarning", "Format", "register", "FORMATS", "detect_format",
+           "extensions_for", "resolve_dayfirst", "warn_unread_dates"]
 
 
 class LoaderError(ValueError):
     """Raised when an input file cannot be read as expenses."""
+
+
+class LoaderWarning(UserWarning):
+    """The file was read, but part of it was not understood (the CLI prints a note)."""
 
 
 LoaderFn = Callable[..., List[Expense]]
@@ -103,6 +109,28 @@ def resolve_dayfirst(path: str, dayfirst: Optional[bool],
             f"{path}: {exc}. Say which this file uses with --dayfirst or --monthfirst "
             "(dayfirst=True or dayfirst=False from Python)."
         ) from exc
+
+
+def warn_unread_dates(dates: Iterable[Tuple[str, Any, Optional[_dt.date]]]) -> None:
+    """Note the date cells that held something but could not be read as a date.
+
+    ``dates`` holds ``(where, as_written, parsed)`` for each row, ``where`` naming
+    the file and line. Such a row still loads, undated, and a period filter then
+    leaves it out: worth a note, not an error, since the chart can still be drawn.
+    """
+    unread = [(where, raw) for where, raw, parsed in dates
+              if parsed is None and raw is not None and str(raw).strip()]
+    if not unread:
+        return
+    where, raw = unread[0]
+    one = len(unread) == 1
+    warnings.warn(LoaderWarning(
+        f"{where}: cannot read the date {raw!r}"
+        + ("" if one else f" (and {len(unread) - 1} more)")
+        + (". That row loads" if one else ". Those rows load")
+        + " without a date, so --month, --year and --period leave "
+        + ("it" if one else "them") + " out. Dates written YYYY-MM-DD always work."
+    ), stacklevel=2)
 
 
 def require(module: str, extra: str, fmt: str) -> Any:

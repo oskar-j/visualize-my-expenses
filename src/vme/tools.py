@@ -70,7 +70,10 @@ EXPENSE_WORDS = {
     "wydatek", "wyplata", "-", "pos", "check", "atm", "fee", "srvchg", "xfer_out",
 }
 
-_AMOUNT_CLEAN_RE = re.compile(r"[^\d,.\-+()]")
+#: "1.5E+3", as spreadsheets write very large or very small numbers.
+_EXPONENT_RE = re.compile(r"(?:\d+[.,]?\d*|[.,]\d+)[eE][+-]?\d+")
+#: "500,-" and "20,– zł": a whole amount written without its minor units.
+_WHOLE_AMOUNT_RE = re.compile(r"\s*[.,]\s*[-\u2013\u2014]")  # -, en/em dash
 _ISO_DATE_RE = re.compile(r"^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})")
 
 
@@ -97,8 +100,10 @@ def pick(mapping: Mapping[str, Any], field: str, default: Any = None) -> Any:
 def parse_amount(value: Any) -> Decimal:
     """Parse money written any of the ways humans and banks write it.
 
-    Handles ``1,234.56``, ``1 234,56``, ``1.234,56``, ``$1,234.56``, ``-12``,
-    ``(12.00)`` (accounting negative) and ``12.00 PLN``.
+    Handles ``1,234.56``, ``1 234,56``, ``1.234,56``, ``1.234.567``,
+    ``$1,234.56``, ``-12``, ``(12.00)`` (accounting negative), ``120.00-``
+    (trailing minus), ``500,-`` (a whole amount), ``12.00 PLN``, ``Rs. 500``
+    and ``1.5E+3``.
     """
     if isinstance(value, Decimal):
         return value
@@ -118,19 +123,28 @@ def parse_amount(value: Any) -> Decimal:
         negative = True
         text = text[1:-1]
 
-    text = _AMOUNT_CLEAN_RE.sub("", text).strip()
-    if text.endswith("-"):  # trailing-minus notation, e.g. "120.00-"
-        negative = True
-        text = text[:-1]
-    text = text.replace("+", "")
-    if text.startswith("-"):
-        negative = not negative
-        text = text[1:]
-    text = text.replace("-", "")
-
-    if not text:
+    digits = [index for index, char in enumerate(text) if char in "0123456789"]
+    if not digits:
         raise ValueError(f"cannot read amount from {value!r}")
+    prefix = text[:digits[0]]
+    number = text[digits[0]:digits[-1] + 1]
+    suffix = text[digits[-1] + 1:]
 
+    # Around the number there is only currency and sign. A currency goes whole,
+    # dot and all ("Rs. 500", "500 kr."), so a dot before the first digit is a
+    # decimal point only when it does not end a word (".50", "-.50", "$.50").
+    if prefix.endswith(".") and not prefix[-2:-1].isalpha():
+        number = "." + number
+    if "-" in suffix and not _WHOLE_AMOUNT_RE.match(suffix):
+        negative = True  # trailing minus, "120.00-"; but "500,-" is just 500
+    if "-" in prefix:
+        negative = not negative
+
+    if _EXPONENT_RE.fullmatch(number):
+        amount = Decimal(format(Decimal(number.replace(",", ".")), "f"))
+        return -amount if negative else amount
+
+    text = re.sub(r"[^\d,.]", "", number)
     last_comma, last_dot = text.rfind(","), text.rfind(".")
     spaces = " \u202f\xa0"
     if last_comma > last_dot:
@@ -144,6 +158,8 @@ def parse_amount(value: Any) -> Decimal:
             text = text.replace(",", "")
         else:
             text = text.replace(".", "").replace(",", ".")
+    elif text.count(".") > 1 and "," not in text:
+        text = text.replace(".", "")  # "1.234.567": dots grouping thousands
     else:
         text = text.replace(",", "")
     for space in spaces:
@@ -163,7 +179,15 @@ def parse_amount(value: Any) -> Decimal:
 _DATE_FORMATS = (
     "%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y", "%d-%m-%Y",
     "%m-%d-%Y", "%Y%m%d", "%d %b %Y", "%d %B %Y", "%b %d %Y", "%B %d %Y",
+    "%b %d, %Y", "%B %d, %Y",
     "%d/%m/%y", "%m/%d/%y", "%y-%m-%d", "%d.%m.%y",
+)
+
+#: A time of day after the date, as bank exports often add it: "15.01.2024 10:23",
+#: "01/15/2024 10:23:00 PM", "Jan 15, 2024, 9:05 am", "2026-08-15T09:30:00+02:00".
+_TIME_TAIL_RE = re.compile(
+    r"(?:T|\s+|,\s*)\d{1,2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:\s*[AaPp]\.?[Mm]\.?)?"
+    r"(?:\s*(?:Z|UTC|GMT|[+-]\d{2}:?\d{2}))?\s*$"
 )
 
 
@@ -212,9 +236,10 @@ def parse_date(value: Any, dayfirst: Optional[bool] = None) -> Optional[_dt.date
     elif dayfirst is False:
         candidates.sort(key=lambda f: 0 if f.startswith("%m") else 1)
 
-    head = text.split("T")[0].split(" ")[0] if "T" in text else text
+    day = _TIME_TAIL_RE.sub("", text)
+    attempts = (text,) if day == text else (day, text)
     for fmt in candidates:
-        for attempt in (text, head):
+        for attempt in attempts:
             try:
                 return _dt.datetime.strptime(attempt, fmt).date()
             except ValueError:
