@@ -207,6 +207,59 @@ class TestExcel:
             load(str(path), sheet="Nope")
 
 
+#: Issue #5: a January statement written month-first. Read row by row, 01/02
+#: used to become 1 February while 01/14 stayed 14 January.
+US_DAYS = (2, 5, 10, 14, 20, 28)
+US_JANUARY = [_dt.date(2026, 1, d) for d in US_DAYS]
+
+
+class TestDateOrder:
+    def test_csv_reads_one_order_for_the_whole_file(self, tmp_path):
+        body = "date,label,amount\n" + "".join(
+            f"01/{d:02d}/2026,Shop,-10\n" for d in US_DAYS)
+        assert [r.date for r in load(write(tmp_path, "us.csv", body))] == US_JANUARY
+
+    def test_json(self, tmp_path):
+        body = "[" + ",".join(
+            f'{{"date":"01/{d:02d}/2026","amount":10}}' for d in US_DAYS) + "]"
+        assert [r.date for r in load(write(tmp_path, "us.json", body))] == US_JANUARY
+
+    def test_json_lines(self, tmp_path):
+        body = "".join(f'{{"date":"01/{d:02d}/2026","amount":10}}\n' for d in US_DAYS)
+        assert [r.date for r in load(write(tmp_path, "us.jsonl", body))] == US_JANUARY
+
+    def test_qif(self, tmp_path):
+        body = "!Type:Bank\n" + "".join(
+            f"D01/{d:02d}/2026\nT-10.00\nPShop\n^\n" for d in US_DAYS)
+        assert [r.date for r in load(write(tmp_path, "us.qif", body))] == US_JANUARY
+
+    def test_excel_text_dates(self, tmp_path):
+        openpyxl = pytest.importorskip("openpyxl")
+        path = tmp_path / "us.xlsx"
+        book = openpyxl.Workbook()
+        book.active.append(["date", "label", "amount"])
+        for d in US_DAYS:
+            book.active.append([f"01/{d:02d}/2026", "Shop", -10])
+        book.save(path)
+        assert [r.date for r in load(str(path))] == US_JANUARY
+
+    def test_a_day_first_file_stays_day_first(self, tmp_path):
+        body = "date,label,amount\n02/01/2026,Shop,-10\n14/01/2026,Shop,-10\n"
+        rows = load(write(tmp_path, "eu.csv", body))
+        assert [r.date for r in rows] == [_dt.date(2026, 1, 2), _dt.date(2026, 1, 14)]
+
+    def test_both_orders_in_one_file_is_an_error(self, tmp_path):
+        body = "date,label,amount\n13/01/2026,Shop,-10\n01/13/2026,Shop,-10\n"
+        with pytest.raises(LoaderError, match=r"m\.csv: dates are written both.*--monthfirst"):
+            load(write(tmp_path, "m.csv", body))
+
+    def test_an_explicit_order_wins(self, tmp_path):
+        body = "date,label,amount\n03/04/2026,Shop,-10\n"
+        path = write(tmp_path, "a.csv", body)
+        assert load(path, dayfirst=False)[0].date == _dt.date(2026, 3, 4)
+        assert load(path, dayfirst=True)[0].date == _dt.date(2026, 4, 3)
+
+
 class TestDetection:
     @pytest.mark.parametrize("name,expected", [
         ("a.csv", "csv"), ("a.tsv", "csv"), ("a.json", "json"), ("a.jsonl", "jsonl"),

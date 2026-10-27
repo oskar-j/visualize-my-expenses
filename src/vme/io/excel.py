@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import List, Optional
 
 from ..models import Expense
-from ..tools import coerce_row
-from .base import Format, LoaderError, register, require
+from ..tools import coerce_row, pick
+from .base import Format, LoaderError, register, require, resolve_dayfirst
 
 __all__ = ["load_excel"]
 
@@ -34,11 +34,16 @@ def load_excel(path: str, sheet: Optional[str] = None, default_currency: str = "
         raise LoaderError(f"{path}: sheet {worksheet.title!r} is empty")
 
     header = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
-    expenses: List[Expense] = []
+    records = []
     for number, row in enumerate(rows[1:], start=2):
         record = {key: value for key, value in zip(header, row) if key}
-        if not any(value not in (None, "") for value in record.values()):
-            continue
+        if any(value not in (None, "") for value in record.values()):
+            records.append((number, record))
+    # Real date cells arrive as datetimes; only dates typed as text are ambiguous.
+    dayfirst = resolve_dayfirst(path, dayfirst, (pick(r, "date") for _, r in records))
+
+    expenses: List[Expense] = []
+    for number, record in records:
         try:
             expenses.append(coerce_row(record, default_currency, dayfirst))
         except (ValueError, TypeError) as exc:

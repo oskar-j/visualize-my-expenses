@@ -16,7 +16,14 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 from .currencies import RateError, get_currency, load_rates, normalise_code
 from .models import AUTO, EXPENSE, INCOME, Expense
 from .sankey import GraphOptions, build_graph, summarise
-from .tools import coerce_rows, format_money, parse_period, period_label, shorten
+from .tools import (
+    coerce_rows,
+    format_money,
+    looks_like_income,
+    parse_period,
+    period_label,
+    shorten,
+)
 
 __all__ = ["CalculatorBase", "Calculator", "apply_sign_convention", "convert",
            "CurrencyError", "RateError", "SIGN_CONVENTIONS", "currencies_used",
@@ -36,11 +43,15 @@ def apply_sign_convention(rows: Sequence[Expense], convention: str = "auto") -> 
     """Decide, once per data set, what a negative amount means.
 
     * ``statement`` -- bank convention: negative is money out, positive money in.
-    * ``expenses``  -- everything is spending (the shape of a plain expense list).
+    * ``expenses``  -- everything is spending (the shape of a plain expense list),
+      except rows whose category or label names income ("Salary", "Payroll"):
+      with no sign to go on, those words are all that marks the income.
     * ``income``    -- everything is income.
     * ``auto``      -- ``expenses`` when no amount is negative, ``statement`` otherwise.
 
-    Rows whose source stated a direction explicitly are never overridden.
+    Rows whose source stated a direction explicitly are never overridden. Under
+    ``statement`` the sign alone decides, so a payment labelled "Income tax"
+    stays spending.
     """
     if convention not in SIGN_CONVENTIONS:
         raise ValueError(
@@ -61,7 +72,7 @@ def apply_sign_convention(rows: Sequence[Expense], convention: str = "auto") -> 
             elif convention == "income":
                 kind = INCOME
             else:
-                kind = EXPENSE
+                kind = INCOME if looks_like_income(row.category, row.label) else EXPENSE
         resolved.append(row.replace(amount=abs(row.amount), kind=kind))
     return resolved
 

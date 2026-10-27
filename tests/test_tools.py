@@ -14,9 +14,12 @@ from vme.currencies import (
     normalise_code,
     sniff_currency,
 )
-from vme.models import EXPENSE, INCOME
+from vme.models import AUTO, EXPENSE, INCOME
 from vme.tools import (
     coerce_row,
+    coerce_rows,
+    infer_dayfirst,
+    looks_like_income,
     month_bounds,
     parse_amount,
     parse_date,
@@ -127,6 +130,80 @@ class TestKind:
         assert parse_kind("wibble", default=EXPENSE) == EXPENSE
         assert parse_kind(None) is None
 
+    @pytest.mark.parametrize("text,expected", [
+        ("Credited", INCOME), ("Incoming", INCOME), ("Debited", EXPENSE),
+        ("Direct Dep", INCOME),            # a known phrase, written with a space
+    ])
+    def test_one_word_and_known_phrases(self, text, expected):
+        assert parse_kind(text) == expected
+
+    @pytest.mark.parametrize("text", [
+        "Credit Card", "Debit Card", "Credit Card Payment", "Debit Card Purchase",
+        "CARD_PAYMENT", "Credit transfer",
+    ])
+    def test_a_phrase_naming_the_transaction_leaves_it_to_the_sign(self, text):
+        # "credit" in "Credit Card" says how it was paid, not which way it went
+        assert parse_kind(text) is None
+
+    @pytest.mark.parametrize("text,expected", [
+        ("Incoming transfer", INCOME), ("Outgoing transfer", EXPENSE),
+        ("Inbound wire", INCOME), ("Outflow - card", EXPENSE),
+    ])
+    def test_a_phrase_with_an_unmistakable_direction_word(self, text, expected):
+        assert parse_kind(text) == expected
+
+    def test_a_phrase_with_both_directions_says_nothing(self):
+        assert parse_kind("incoming or outgoing") is None
+
+
+class TestLooksLikeIncome:
+    @pytest.mark.parametrize("category,label", [
+        ("Income", "Tax refund"),          # the category speaks first
+        ("Work", "Salary"),
+        ("Uncategorized", "ACME payroll"),
+        ("Wages", ""),
+        ("Bonuses", "Q3"),
+    ])
+    def test_income(self, category, label):
+        assert looks_like_income(category, label)
+
+    @pytest.mark.parametrize("category,label", [
+        ("Taxes", "Income tax"),
+        ("Housing", "Income tax"),
+        ("Utilities", "Water & sewage"),   # "sewage" is not a wage
+        ("Insurance", "Income protection"),
+        ("Payroll tax", ""),
+        ("Groceries", "Lidl"),
+    ])
+    def test_not_income(self, category, label):
+        assert not looks_like_income(category, label)
+
+
+class TestInferDayfirst:
+    def test_one_unambiguous_date_settles_day_first(self):
+        assert infer_dayfirst(["01/02/2026", "13/02/2026", "05/02/2026"]) is True
+
+    def test_one_unambiguous_date_settles_month_first(self):
+        assert infer_dayfirst(["01/02/2026", "02/13/2026", "05/02/2026"]) is False
+
+    @pytest.mark.parametrize("values", [
+        ["01/02/2026", "03/04/2026"],      # could be either
+        ["2026-08-15", "2026-08-31"],      # ISO is never ambiguous
+        ["26-08-15", "26-08-31"],          # two-digit year with dashes: year first
+        [_dt.date(2026, 8, 15), 20260815, None, ""],
+        [],
+    ])
+    def test_undecided(self, values):
+        assert infer_dayfirst(values) is None
+
+    def test_dashes_and_short_years_count(self):
+        assert infer_dayfirst(["13-02-2026"]) is True
+        assert infer_dayfirst(["02/13/26"]) is False
+
+    def test_both_orders_in_one_column_is_an_error(self):
+        with pytest.raises(ValueError, match=r"'13/01/2026'.*'01/13/2026'"):
+            infer_dayfirst(["13/01/2026", "01/02/2026", "01/13/2026"])
+
 
 class TestCurrencyFormatting:
     @pytest.mark.parametrize("amount,code,expected", [
@@ -203,6 +280,28 @@ class TestCoerceRow:
 
     def test_explicit_direction_wins(self):
         assert coerce_row({"label": "Pay", "amount": "-100", "type": "CREDIT"}).kind == INCOME
+
+    def test_income_words_alone_do_not_decide_the_direction(self):
+        # apply_sign_convention decides, once it knows whether the file is signed
+        row = coerce_row({"category": "Taxes", "label": "Income tax", "amount": "-500"})
+        assert row.kind == AUTO
+
+
+class TestCoerceRows:
+    def test_a_us_file_reads_every_date_month_first(self):
+        days = (2, 5, 10, 14, 20, 28)
+        rows = coerce_rows([{"date": f"01/{d:02d}/2026", "label": "Shop", "amount": 10}
+                            for d in days])
+        assert [r.date for r in rows] == [_dt.date(2026, 1, d) for d in days]
+
+    def test_dayfirst_given_is_used(self):
+        rows = coerce_rows([{"date": "03/04/2026", "amount": 1}], dayfirst=False)
+        assert rows[0].date == _dt.date(2026, 3, 4)
+
+    def test_both_orders_is_an_error_that_says_what_to_do(self):
+        with pytest.raises(ValueError, match="YYYY-MM-DD"):
+            coerce_rows([{"date": "13/01/2026", "amount": 1},
+                         {"date": "01/13/2026", "amount": 1}])
 
 
 def test_pick_is_case_and_punctuation_insensitive():
