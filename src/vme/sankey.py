@@ -42,7 +42,11 @@ class GraphOptions:
 
 def _fold(items: List[Tuple[str, Decimal]], keep: Optional[int], min_share: float,
           total: Decimal, other_label: str) -> List[Tuple[str, Decimal]]:
-    """Keep the biggest ``keep`` items, sweep the rest into one 'Other' bucket."""
+    """Keep the biggest ``keep`` items, sweep the rest into one 'Other' bucket.
+
+    When the data already has an item called ``other_label``, the bucket is that
+    item: the rest is added to it, so there are never two of them.
+    """
     ordered = sorted(items, key=lambda pair: (-pair[1], pair[0]))
     threshold = (Decimal(str(min_share)) / 100) * total if min_share and total else ZERO
 
@@ -60,7 +64,12 @@ def _fold(items: List[Tuple[str, Decimal]], keep: Optional[int], min_share: floa
             kept = [ordered[0]]
             folded -= ordered[0][1]
         if folded > 0:
-            kept.append((other_label, folded))
+            names = [name for name, _ in kept]
+            if other_label in names:
+                at = names.index(other_label)
+                kept[at] = (other_label, kept[at][1] + folded)
+            else:
+                kept.append((other_label, folded))
     return kept
 
 
@@ -110,13 +119,17 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
 
     categories = _fold(list(category_totals.items()), options.top_categories,
                        options.min_share, expense_total, options.other_label)
+    kept_names = {name for name, _ in categories}
+    # Categories swept into the bucket. A category already called "Other" is never
+    # among them: kept or folded, it is the bucket itself.
+    folded_names = [name for name in category_totals if name not in kept_names]
 
     category_depth = hub_depth + 1
     palette_slot = 0
     colors: Dict[str, str] = OrderedDict()
     for name, value in categories:
         key = f"cat:{name}"
-        if name == options.other_label and name not in category_totals:
+        if name == options.other_label and (folded_names or name not in category_totals):
             color = theme.other
         else:
             color = theme.color_for(palette_slot)
@@ -127,14 +140,15 @@ def build_graph(rows: Sequence[Expense], currency: str = "USD", title: str = "",
 
     # ---------------------------------------------------------------- labels
     if options.detail:
-        kept_names = {name for name, _ in categories}
-        folded_names = [n for n in category_totals if n not in kept_names]
         detail_source: Dict[str, Dict[str, Decimal]] = {}
         for name in kept_names:
             if name in label_totals:
                 detail_source[name] = dict(label_totals[name])
         if folded_names and options.other_label in kept_names:
-            merged: Dict[str, Decimal] = defaultdict(lambda: ZERO)
+            # The bucket shows the labels of a category already called "Other",
+            # then one row per folded category.
+            merged: Dict[str, Decimal] = defaultdict(
+                lambda: ZERO, label_totals.get(options.other_label, {}))
             for name in folded_names:
                 for leaf, value in label_totals[name].items():
                     merged[name if len(label_totals[name]) == 1 else leaf] += value

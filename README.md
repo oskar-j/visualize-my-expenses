@@ -167,7 +167,7 @@ Useful `render` options:
 | `-o out.png` | `.png`, `.svg`, `.pdf` or `.html` — picked by extension |
 | `-c PLN` | currency the report is drawn in |
 | `-m 2026-08` | one month; also `-y 2026` and `-p START..END` |
-| `--top 8` | keep the 8 biggest categories, fold the rest into "Other" |
+| `--top 8` | keep the 8 biggest categories, fold the rest into "Other" (your own "Other", if the data has one) |
 | `--min-share 1` | fold anything under 1% of the total |
 | `--max-labels 6` | most detail rows to show inside one category |
 | `--no-detail` | stop at categories, skip the label column |

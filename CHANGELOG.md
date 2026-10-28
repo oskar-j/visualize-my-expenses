@@ -10,6 +10,24 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.1.4]
+
+A fix for budgets that already have a category called "Other".
+
+### Fixed
+
+- **A category called "Other" keeps its labels when `--top` or `--min-share`
+  folds smaller categories into it** (#7). The folded categories and the real
+  "Other" shared one node, but its detail column showed only the folded ones:
+  "Other" read 490 zł while passing on 90 zł, and its own labels were missing
+  from the chart. The same happened when the real "Other" was small enough to
+  be folded itself. Now "Other" is one bucket that lists its own labels first,
+  then one row per folded category, and passes on exactly what it holds.
+- **That "Other" is grey, its labels too.** The duplicate gave the bar one
+  palette colour and its labels another, and used up a palette slot, so the
+  categories after it changed colour. A category called "Other" with nothing
+  folded into it keeps its palette colour, as before.
+
 ## [0.1.3]
 
 Amounts and dates the way bank exports actually write them: a currency
@@ -174,6 +192,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.1.4]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.4
 [0.1.3]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.3
 [0.1.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.2
 [0.1.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.1
