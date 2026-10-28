@@ -204,7 +204,7 @@ class TestLayout:
         layout = layout_graph(build_graph(rows, currency="PLN"))
         for depth in layout.columns:
             stack = layout.column(depth)
-            for upper, lower in zip(stack, stack[1:]):
+            for upper, lower in zip(stack, stack[1:], strict=False):
                 assert upper.bottom <= lower.top + 1e-9
 
     def test_ribbons_match_their_links(self, rows):

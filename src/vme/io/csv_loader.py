@@ -52,7 +52,7 @@ def load_csv(path: str, encoding: Optional[str] = None, delimiter: Optional[str]
 
     records = []
     for number, row in enumerate(rows[1:], start=2):
-        record = {key: value for key, value in zip(header, row) if key}
+        record = {key: value for key, value in zip(header, row, strict=False) if key}
         if any((v or "").strip() for v in record.values()):
             records.append((number, record))
     dayfirst = resolve_dayfirst(path, dayfirst, (pick(r, "date") for _, r in records))
@@ -66,7 +66,7 @@ def load_csv(path: str, encoding: Optional[str] = None, delimiter: Optional[str]
     if not expenses:
         raise LoaderError(f"{path} has a header but no rows")
     warn_unread_dates((f"{path}:{number}", pick(record, "date"), expense.date)
-                      for (number, record), expense in zip(records, expenses))
+                      for (number, record), expense in zip(records, expenses, strict=True))
     return expenses
 
 

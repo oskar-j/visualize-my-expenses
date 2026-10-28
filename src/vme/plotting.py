@@ -10,7 +10,7 @@ from __future__ import annotations
 import warnings
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .currencies import format_money, get_currency
 from .models import Link, Node, SankeyGraph
@@ -169,10 +169,11 @@ MAX_AUTO_HEIGHT = 3600
 
 
 def _figure_size(layout: Layout, width: int, height: Optional[int],
-                 dpi: int) -> Tuple[float, float]:
+                 dpi: int, font_scale: float = 1.0) -> Tuple[float, float]:
     if height is None:
+        # Every row needs a line of text, so bigger type needs taller rows.
         rows = max(layout.widest_column, 3)
-        height = int(min(MAX_AUTO_HEIGHT, max(700, 150 + 66 * rows)))
+        height = int(min(MAX_AUTO_HEIGHT, max(700, 150 + 66 * rows * font_scale)))
     return width / float(dpi), height / float(dpi)
 
 
@@ -182,27 +183,32 @@ _EM_PER_CHAR = 0.55
 #: Space left between a node's name and the value printed after it.
 _INLINE_GAP_IN = 0.10
 
-_RESOLVED_FONTS: Optional[List[str]] = None
+_RESOLVED_FONTS: Dict[Tuple[str, ...], List[str]] = {}
 _WIDTHS: Dict[tuple, float] = {}
 
 
-def _fonts() -> List[str]:
-    """The font stack, filtered to what is actually installed (cached)."""
-    global _RESOLVED_FONTS
-    if _RESOLVED_FONTS is None:
+def _fonts(stack: Optional[Sequence[str]] = None) -> List[str]:
+    """``stack`` (vme's own by default), filtered to what is installed (cached)."""
+    key = tuple(stack or FONT_STACK)
+    if key not in _RESOLVED_FONTS:
         from matplotlib import font_manager
 
         installed = {face.name for face in font_manager.fontManager.ttflist}
-        _RESOLVED_FONTS = [name for name in FONT_STACK if name in installed] or \
-            ["DejaVu Sans"]
-    return _RESOLVED_FONTS
+        _RESOLVED_FONTS[key] = [name for name in key if name in installed] or ["DejaVu Sans"]
+    return _RESOLVED_FONTS[key]
 
 
-def _text_inches(text: str, font_pt: float, weight: str = "normal") -> float:
-    """Width of ``text`` in inches, measured in the real font (cached)."""
+def _text_inches(text: str, font_pt: float, weight: str = "normal",
+                 fonts: Optional[Sequence[str]] = None) -> float:
+    """Width of ``text`` in inches, measured in the font it is drawn in (cached).
+
+    ``fonts`` has to be the stack the text is drawn with: label room, margins and
+    the gap between nodes are all derived from these widths.
+    """
     if not text:
         return 0.0
-    key = (text, round(font_pt, 2), weight)
+    family = _fonts(fonts)
+    key = (text, round(font_pt, 2), weight, tuple(family))
     known = _WIDTHS.get(key)
     if known is not None:
         return known
@@ -210,7 +216,7 @@ def _text_inches(text: str, font_pt: float, weight: str = "normal") -> float:
         from matplotlib.font_manager import FontProperties
         from matplotlib.textpath import TextPath
 
-        prop = FontProperties(family=_fonts(), weight=weight, size=font_pt)
+        prop = FontProperties(family=family, weight=weight, size=font_pt)
         width = TextPath((0, 0), text, size=font_pt, prop=prop).get_extents().width / 72.0
     except Exception:  # pragma: no cover - font backends vary
         width = len(text) * _EM_PER_CHAR * font_pt / 72.0
@@ -218,17 +224,18 @@ def _text_inches(text: str, font_pt: float, weight: str = "normal") -> float:
     return width
 
 
-def _fit(text: str, font_pt: float, inches: float, weight: str = "normal") -> str:
+def _fit(text: str, font_pt: float, inches: float, weight: str = "normal",
+         fonts: Optional[Sequence[str]] = None) -> str:
     """Truncate ``text`` with an ellipsis so it fits ``inches``."""
     if inches <= 0:
         return ""
-    if _text_inches(text, font_pt, weight) <= inches:
+    if _text_inches(text, font_pt, weight, fonts) <= inches:
         return text
     low, high = 1, len(text)
     while low < high:
         middle = (low + high + 1) // 2
         candidate = text[:middle].rstrip() + "\u2026"
-        if _text_inches(candidate, font_pt, weight) <= inches:
+        if _text_inches(candidate, font_pt, weight, fonts) <= inches:
             low = middle
         else:
             high = middle - 1
@@ -238,8 +245,13 @@ def _fit(text: str, font_pt: float, inches: float, weight: str = "normal") -> st
 def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
            height: Optional[int] = None, dpi: int = 200, show_values: bool = True,
            show_percent: bool = True, node_width: float = 0.013,
-           curvature: float = 0.5, font_scale: float = 1.0, footer: str = ""):
-    """Build (but do not save) a matplotlib ``Figure`` for ``graph``."""
+           curvature: float = 0.5, font_scale: float = 1.0, footer: str = "",
+           fonts: Optional[Sequence[str]] = None):
+    """Build (but do not save) a matplotlib ``Figure`` for ``graph``.
+
+    ``fonts`` is the font stack (vme's own when omitted); ``font_scale``
+    multiplies every type size. :func:`vme.engines.get_style` supplies both.
+    """
     import matplotlib.patheffects as path_effects
     from matplotlib.figure import Figure
     from matplotlib.patches import PathPatch, Rectangle
@@ -250,13 +262,16 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
     if not layout.placements:
         raise ValueError("nothing to draw: the graph has no nodes")
 
-    fig_w, fig_h = _figure_size(layout, width, height, dpi)
+    fig_w, fig_h = _figure_size(layout, width, height, dpi, font_scale)
     fig = Figure(figsize=(fig_w, fig_h), dpi=dpi, facecolor=theme.surface)
 
     base_pt = 10.0 * font_scale
     value_pt = 8.6 * font_scale
     title_pt = 15.0 * font_scale
-    font = _fonts()
+    font = _fonts(fonts)
+
+    def inches(text: str, size: float, weight: str = "normal") -> float:
+        return _text_inches(text, size, weight, font)
 
     first, last = layout.columns[0], layout.columns[-1]
     total = graph.total or Decimal("1")
@@ -311,12 +326,12 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
 
     def needed_inches(placement: Placement) -> float:
         name, value = node_text(placement)
-        wide = _text_inches(name, base_pt, "medium")
+        wide = inches(name, base_pt, "medium")
         if not show_values:
             return wide
         if is_stacked(placement):
-            return max(wide, _text_inches(value, value_pt))
-        return wide + _INLINE_GAP_IN + _text_inches(value, value_pt)
+            return max(wide, inches(value, value_pt))
+        return wide + _INLINE_GAP_IN + inches(value, value_pt)
 
     gutter_in = 0.12                # breathing room between a bar and its label
     slack_in = 0.02                 # covers the rounding in pad -> inches -> pad
@@ -387,14 +402,19 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
                 ([] if placement.depth == last else halo)
 
         stacked = is_stacked(placement)
+        inline = show_values and not stacked
         room_in = ((left_pad if align == "right" else right_pad) * fig_w - gutter_in
                    if outer else interior_in)
         if room_in > 0:
             # Two lines are only an option where the node is tall enough for them;
             # a short node has to fit its value beside the name or lose some name.
-            if show_values and not stacked:
-                room_in -= _INLINE_GAP_IN + _text_inches(value, value_pt)
-            name = _fit(name, base_pt, room_in, "medium")
+            # Never all of it: every node keeps a visible name, so where none of
+            # the name would be left, the value gives way instead.
+            beside = room_in - _INLINE_GAP_IN - inches(value, value_pt) if inline else room_in
+            fitted = _fit(name, base_pt, beside, "medium", font)
+            if inline and not fitted:
+                value, fitted = "", _fit(name, base_pt, room_in, "medium", font)
+            name = fitted
 
         if stacked:
             half = line_units * 0.55
@@ -409,16 +429,16 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
         # Side by side. On the left column the pair is mirrored, so the value
         # takes the spot next to the bar and the name sits outside it -- that
         # keeps "Freelance  1 450 zł" reading in that order on both sides.
-        if align == "right" and show_values:
-            step = (_text_inches(value, value_pt) + _INLINE_GAP_IN) / axes_w_in
+        if align == "right" and show_values and value:
+            step = (inches(value, value_pt) + _INLINE_GAP_IN) / axes_w_in
             name_x, value_x = text_x - step, text_x
         else:
-            step = (_text_inches(name, base_pt, "medium") + _INLINE_GAP_IN) / axes_w_in
+            step = (inches(name, base_pt, "medium") + _INLINE_GAP_IN) / axes_w_in
             name_x, value_x = text_x, text_x + step
 
         axes.text(name_x, placement.middle, name, ha=align, fontsize=base_pt,
                   color=theme.ink, fontweight="medium", path_effects=effects, **common)
-        if show_values:
+        if show_values and value:
             axes.text(value_x, placement.middle, value, ha=align, fontsize=value_pt,
                       color=theme.ink_muted, path_effects=effects, **common)
 
@@ -467,8 +487,13 @@ def show(graph: SankeyGraph, theme: Optional[Theme] = None, **options) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def to_plotly(graph: SankeyGraph, theme: Optional[Theme] = None):
-    """Build a plotly ``Figure``. Requires the ``html`` extra."""
+def to_plotly(graph: SankeyGraph, theme: Optional[Theme] = None,
+              fonts: Optional[Sequence[str]] = None, font_scale: float = 1.0):
+    """Build a plotly ``Figure``. Requires the ``html`` extra.
+
+    ``fonts`` and ``font_scale`` are as for :func:`render`; the browser picks the
+    first font of the stack it has, so it is passed whole.
+    """
     try:
         import plotly.graph_objects as go
     except ImportError as exc:  # pragma: no cover - depends on the environment
@@ -513,10 +538,10 @@ def to_plotly(graph: SankeyGraph, theme: Optional[Theme] = None):
                    f"{graph.subtitle}</span>"
     figure.update_layout(
         title=dict(text=heading, x=0.02, xanchor="left",
-                   font=dict(size=20, color=theme.ink)),
+                   font=dict(size=20 * font_scale, color=theme.ink)),
         paper_bgcolor=theme.surface,
         plot_bgcolor=theme.surface,
-        font=dict(family=", ".join(FONT_STACK), size=13, color=theme.ink),
+        font=dict(family=", ".join(fonts or FONT_STACK), size=13 * font_scale, color=theme.ink),
         margin=dict(l=24, r=24, t=80, b=32),
     )
     return figure
@@ -531,8 +556,9 @@ def _rgba(hex_color: str, alpha: float) -> str:
 
 
 def write_html(graph: SankeyGraph, path: str, theme: Optional[Theme] = None,
-               include_plotlyjs: str = "cdn") -> str:
-    figure = to_plotly(graph, theme)
+               include_plotlyjs: str = "cdn", fonts: Optional[Sequence[str]] = None,
+               font_scale: float = 1.0) -> str:
+    figure = to_plotly(graph, theme, fonts=fonts, font_scale=font_scale)
     figure.write_html(str(path), include_plotlyjs=include_plotlyjs,
                       full_html=True, config={"displaylogo": False})
     return str(path)

@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 375 tests, ~9s
+uv run pytest                            # 410 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -50,6 +50,7 @@ Around that chain sit modules that know nothing about each other:
 | `io/` | one self-registering module per input format |
 | `sankey.py` | rows → `SankeyGraph`: folding into "Other", the savings branch |
 | `plotting.py` | layout (renderer-independent) + matplotlib and plotly backends |
+| `engines.py` | the look: `get_style` → `Style` (theme, font stack, type scale) for matplotlib or seaborn |
 | `theme.py` | light/dark palettes |
 | `cli.py` | the click commands |
 
@@ -81,6 +82,14 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
   `TextPath`; margins, truncation and the inter-node gap are all derived from those measurements.
   The gap is *solved for* so every node gets a text line of clearance — see the comment in `render`.
   Changing font sizes or padding without re-deriving it brings back overlapping labels.
+- **Seaborn never draws.** It has no Sankey; `--engine seaborn` only swaps the palette (greys
+  dropped, at most 8), the font stack and the type scale (its context), all through
+  `engines.get_style`. matplotlib draws either way, and seaborn is an optional extra.
+- **Fonts reach the measuring code, not just the text.** `render` measures every label with its
+  `inches` helper in the engine's stack; measuring in one font and drawing in another brings back
+  overlapping labels. The auto height scales with `font_scale` for the same reason.
+- **Every node keeps a visible name.** When a name cannot fit beside its value, the name is
+  shortened, and if nothing of it would be left, the value is dropped instead.
 - **Rendering tests must use the Agg backend** (`tests/conftest.py` sets it).
 
 ## Releasing
@@ -111,8 +120,9 @@ section, merge.
 
 ## Conventions
 
-- Python 3.9 is supported, so `typing.Optional`/`Dict`/`List` stay; ruff's PEP 604/585 rules are
-  disabled in `pyproject.toml` for that reason.
+- Python 3.10 or newer (3.9 was dropped in 0.2.0). `typing.Optional`/`Dict`/`List` stay from the
+  3.9 days, and ruff's PEP 604/585 rules stay off until the code moves over in one change. Every
+  `zip()` says `strict=` (ruff B905): `True` where the inputs are one-to-one by construction.
 - Errors that a user can act on say what to do (`--rate EUR=4.30`, `pip install "vme-py[excel]"`).
   Loader errors name the file and line.
 - Palettes are validated for colour-blind separation and contrast against their own surface, and

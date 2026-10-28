@@ -17,6 +17,7 @@ import click
 from . import __version__
 from .currencies import CURRENCIES, RateError, load_rates
 from .data_store import SIGN_CONVENTIONS, CurrencyError
+from .engines import CONTEXTS, ENGINES, get_style
 from .io import FORMATS, LoaderError, LoaderWarning, describe_formats
 from .plotting import RenderWarning
 from .theme import THEMES
@@ -109,6 +110,13 @@ def main(ctx: click.Context) -> None:
 @click.option("--subtitle", default="", help="Second line under the heading.")
 @click.option("--theme", type=click.Choice(sorted(THEMES)), default="light",
               show_default=True, help="Colour scheme.")
+@click.option("--engine", type=click.Choice(ENGINES), default="matplotlib", show_default=True,
+              help="The look: vme's own (matplotlib), or seaborn's palette, fonts and type "
+                   'sizes (needs: pip install "vme-py[seaborn]").')
+@click.option("--palette", metavar="NAME",
+              help="Seaborn palette for the categories, e.g. colorblind. Needs --engine seaborn.")
+@click.option("--context", type=click.Choice(CONTEXTS),
+              help="Seaborn type size (default notebook). Needs --engine seaborn.")
 @click.option("--sign", type=click.Choice(SIGN_CONVENTIONS), default="auto",
               show_default=True,
               help="What a negative amount means when the file does not say.")
@@ -139,7 +147,8 @@ def main(ctx: click.Context) -> None:
 def render(source: str, output: str, fmt: Optional[str], currency: str,
            rates: Tuple[str, ...], rates_file: Optional[str],
            month: Optional[str], year: Optional[str],
-           period: Optional[str], title: str, subtitle: str, theme: str, sign: str,
+           period: Optional[str], title: str, subtitle: str, theme: str,
+           engine: str, palette: Optional[str], context: Optional[str], sign: str,
            top_categories: Optional[int], max_labels: int, min_share: float,
            no_detail: bool, no_savings: bool, group_income: bool, width: int,
            height: Optional[int], dpi: int, transparent: bool, no_percent: bool,
@@ -154,11 +163,17 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
       vme render statement.ofx -c EUR --top 8 --theme dark
       vme render trip.csv -c PLN --rate EUR=4.30 --rate UAH=0.095
       vme render expenses.json -o report.html
+      vme render budget.csv --engine seaborn --palette colorblind --context talk
     """
     suffix = os.path.splitext(output)[1].lower()
     if suffix not in IMAGE_SUFFIXES + HTML_SUFFIXES:
         _fail(f"cannot write {suffix or output!r}",
               "Supported: " + ", ".join(IMAGE_SUFFIXES + HTML_SUFFIXES))
+
+    try:  # before reading the file: a missing seaborn should not wait for a big load
+        get_style(engine, theme, palette, context)
+    except (ValueError, ImportError) as exc:
+        _fail(str(exc))
 
     loader_options = {k: v for k, v in (
         ("sheet", sheet), ("encoding", encoding), ("delimiter", delimiter),
@@ -166,6 +181,7 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
 
     visualizer = _build(source, fmt, currency, loader_options, dict(
         title=title, subtitle=subtitle, theme=theme, sign=sign,
+        engine=engine, palette=palette, context=context,
         rates=_parse_rates(rates, rates_file, currency),
         period=_period(month, year, period),
         verbose=verbose, detail=not no_detail, top_categories=top_categories,
@@ -283,6 +299,8 @@ def formats() -> None:
         click.echo(f"  {click.style(name, fg='cyan'):<18} {extensions:<16} "
                    f"{description}{note}")
     click.echo("\nOutput: " + ", ".join(IMAGE_SUFFIXES) + " and .html (needs plotly)")
+    click.echo("Engines: matplotlib (vme's own look), seaborn (needs vme-py[seaborn]); "
+               "pick one with vme render --engine")
 
 
 @main.command()

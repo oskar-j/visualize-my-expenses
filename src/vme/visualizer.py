@@ -11,9 +11,10 @@ from typing import Any, Iterable, Mapping, Optional
 
 from .currencies import format_money, load_rates
 from .data_store import Calculator
+from .engines import Style, get_style
 from .models import SankeyGraph
 from .sankey import GraphOptions
-from .theme import Theme, get_theme
+from .theme import Theme
 from .tools import period_label
 
 __all__ = ["Visualizer"]
@@ -45,17 +46,28 @@ class Visualizer(Calculator):
         or the path to a JSON/CSV rates file.
     :param title: heading drawn on the plot (defaults to a generated one).
     :param theme: ``"light"`` or ``"dark"``.
+    :param engine: ``"matplotlib"`` (vme's own look) or ``"seaborn"`` (seaborn's
+        palette, fonts and type sizes; needs the ``seaborn`` extra).
+    :param palette: a seaborn palette name, such as ``"colorblind"``; seaborn engine only.
+    :param context: ``"paper"``, ``"notebook"``, ``"talk"`` or ``"poster"``; seaborn
+        engine only.
     """
 
     def __init__(self, rows: Optional[Iterable[Any]] = None, currency: str = "USD",
                  title: str = "", subtitle: str = "", theme: str = "light",
                  sign: str = "auto", rates: Optional[Any] = None,
-                 period: Optional[str] = None, **kwargs: Any):
+                 period: Optional[str] = None, engine: str = "matplotlib",
+                 palette: Optional[str] = None, context: Optional[str] = None,
+                 **kwargs: Any):
         super().__init__(rows=rows, currency=currency,
                          verbose=bool(kwargs.pop("verbose", False)))
         self.title = title
         self.subtitle = subtitle
         self.theme_name = theme
+        self.engine = engine
+        self.palette = palette
+        self.context = context
+        self.style()  # an unknown engine or palette, or a missing seaborn, fails here
         self.sign = sign
         self.rates = _as_rates(rates, self.currency)
         self.period = period
@@ -103,8 +115,21 @@ class Visualizer(Calculator):
                 self.subtitle = period_label(*span)
         return self
 
+    def style(self) -> Style:
+        """Colours, fonts and type scale, as the engine decides them."""
+        return get_style(self.engine, self.theme_name, self.palette, self.context)
+
     def theme(self) -> Theme:
-        return get_theme(self.theme_name)
+        return self.style().theme
+
+    def _render_options(self, options: Mapping[str, Any]) -> dict:
+        """Constructor options, then call options, then what the engine decides."""
+        style = self.style()
+        merged = dict(self.render_options)
+        merged.update(options)
+        merged.setdefault("fonts", style.fonts)
+        merged.setdefault("font_scale", style.font_scale)
+        return merged
 
     def graph(self) -> SankeyGraph:
         """The aggregated Sankey graph for the current rows."""
@@ -139,8 +164,7 @@ class Visualizer(Calculator):
         from . import plotting
 
         graph = self.graph()            # prepares and validates before we sum totals
-        merged = dict(self.render_options)
-        merged.update(options)
+        merged = self._render_options(options)
         merged.setdefault("footer", self.footer())
         return plotting.save(graph, str(filename), theme=self.theme(), **merged)
 
@@ -151,8 +175,11 @@ class Visualizer(Calculator):
         """Write an interactive plotly version (needs the ``html`` extra)."""
         from . import plotting
 
-        return plotting.write_html(self.graph(), str(filename), theme=self.theme(),
-                                   **options)
+        style = self.style()
+        options = dict(options)
+        options.setdefault("fonts", style.fonts)
+        options.setdefault("font_scale", style.font_scale)
+        return plotting.write_html(self.graph(), str(filename), theme=style.theme, **options)
 
     def save(self, filename: str, **options: Any) -> str:
         """Write whichever format ``filename``'s extension asks for."""
@@ -171,8 +198,7 @@ class Visualizer(Calculator):
         from . import plotting
 
         graph = self.graph()
-        merged = dict(self.render_options)
-        merged.update(options)
+        merged = self._render_options(options)
         merged.setdefault("footer", self.footer())
         plotting.show(graph, theme=self.theme(), **merged)
 

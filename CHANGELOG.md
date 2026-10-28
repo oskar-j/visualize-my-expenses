@@ -10,6 +10,63 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.2.0]
+
+A choice of look: vme's own, or seaborn's. Also, Python 3.10 is now the oldest
+supported version.
+
+### Added
+
+- **`--engine seaborn` draws the chart in seaborn's look**: a seaborn palette
+  for the categories, seaborn's fonts, and the type sizes of a seaborn
+  context. `--palette` picks the palette (`deep` unless you name another, such
+  as `colorblind`, `muted` or `Set2`) and `--context` the size (`paper`,
+  `notebook`, `talk` or `poster`; `notebook` unless you say otherwise). From
+  Python: `Visualizer(rows, engine="seaborn", palette="colorblind",
+  context="talk")`. HTML output takes the same palette and fonts.
+- **The `seaborn` extra**: `pip install "vme-py[seaborn]"`, also part of
+  `vme-py[all]`. Without it, `--engine seaborn` stops with that install
+  command instead of a traceback.
+- `vme formats` lists the engines. `vme.plotting.render`, `to_plotly` and
+  `write_html` take a `fonts` stack, and the last two a `font_scale`, for
+  drawing a graph yourself in a given look.
+
+### Changed
+
+- **Bigger type gets a taller image.** When `--height` is not given, the
+  image now grows with the type size (a seaborn context, or `font_scale` from
+  Python) as it already did with the number of rows. Before, larger type kept
+  the same height and the labels overlapped.
+- **`Visualizer` checks its look when it is created.** An unknown theme,
+  engine or palette, or `engine="seaborn"` without seaborn installed, now
+  raises from `Visualizer(...)` rather than from the first `create_png`.
+
+### Fixed
+
+- **No node loses its whole name.** In a narrow image, or with larger type, a
+  name that could not fit beside its value was shortened, sometimes to
+  nothing: a category was drawn as just "629 zł 6%". Now, where none of the
+  name would be left, the value gives way instead. Charts whose names fit come
+  out exactly as before.
+
+### Removed
+
+- **Python 3.9.** It reached its end of life in October 2025. vme now needs
+  Python 3.10 or newer; on Python 3.9, pip keeps installing vme 0.1.4.
+
+### Notes
+
+- **Seaborn styles what matplotlib draws**, since seaborn has no Sankey chart
+  of its own. That is also why the seaborn extra always installs matplotlib:
+  Python packages cannot declare "matplotlib or seaborn", and seaborn needs
+  matplotlib anyway.
+- **vme checks its own palettes; seaborn's are yours to choose.** vme's
+  palettes are checked for colour-blind separation and for contrast against
+  their background. A seaborn palette is not, though vme leaves out its grey,
+  which vme keeps for "Other", and uses at most 8 colours. The background,
+  light or dark, and the colours of income, savings and "Other" stay vme's
+  under either engine.
+
 ## [0.1.4]
 
 A fix for budgets that already have a category called "Other".
@@ -192,6 +249,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.2.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.0
 [0.1.4]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.4
 [0.1.3]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.3
 [0.1.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.2

@@ -57,7 +57,7 @@ def load_json(path: str, encoding: Optional[str] = None, default_currency: str =
     if not expenses:
         raise LoaderError(f"{path} contains no rows")
     warn_unread_dates((f"{path}: row {index}", raw_date(row), expense.date)
-                      for index, (row, expense) in enumerate(zip(rows, expenses)))
+                      for index, (row, expense) in enumerate(zip(rows, expenses, strict=True)))
     return expenses
 
 
@@ -84,7 +84,7 @@ def load_jsonl(path: str, encoding: Optional[str] = None, default_currency: str 
     if not expenses:
         raise LoaderError(f"{path} contains no rows")
     warn_unread_dates((f"{path}:{number}", raw_date(record), expense.date)
-                      for (number, record), expense in zip(records, expenses))
+                      for (number, record), expense in zip(records, expenses, strict=True))
     return expenses
 
 

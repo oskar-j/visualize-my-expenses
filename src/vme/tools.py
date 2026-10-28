@@ -424,7 +424,7 @@ def _as_mapping(row: Any) -> Mapping[str, Any]:
         return mapping
     if isinstance(row, Sequence) and not isinstance(row, (str, bytes)):
         keys = ("category", "label", "amount", "currency", "date", "kind")
-        return dict(zip(keys, row))
+        return dict(zip(keys, row, strict=False))
     raise TypeError(
         f"cannot read a row from {type(row).__name__}; pass a dict, a namedtuple, "
         "an Expense, or a sequence of (category, label, amount, currency)"

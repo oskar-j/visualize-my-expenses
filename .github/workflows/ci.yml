@@ -46,7 +46,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        python: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         include:
           - { os: macos-latest, python: "3.13" }
           - { os: windows-latest, python: "3.13" }
@@ -88,6 +88,19 @@ jobs:
           smoke/bin/vme --version
           smoke/bin/vme sample budget.csv
           smoke/bin/vme render budget.csv -c PLN -o budget.png
+      # The seaborn engine is an extra: without it the error must name the install
+      # command, and with it -- resolved by pip from PyPI, like a user's -- it draws.
+      - name: The seaborn engine, before and after installing the extra
+        working-directory: ${{ runner.temp }}
+        run: |
+          if smoke/bin/vme render budget.csv -c PLN --engine seaborn -o sns.png 2> error.txt; then
+            echo "::error::--engine seaborn drew a chart without seaborn installed"
+            exit 1
+          fi
+          grep -F 'pip install "vme-py[seaborn]"' error.txt
+          wheel=$(ls "$GITHUB_WORKSPACE"/dist/*.whl)
+          smoke/bin/pip install "$wheel[seaborn]"
+          smoke/bin/vme render budget.csv -c PLN --engine seaborn -o sns.png
       - name: Read the version from the built wheel
         id: version
         run: |

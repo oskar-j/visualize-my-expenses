@@ -6,12 +6,12 @@ build-backend = "hatchling.build"
 name = "vme-py"
 # The one place the version lives: bump it here (`uv version --bump patch`) and
 # a merge to master publishes it. `vme.__version__` reads it back at runtime.
-version = "0.1.4"
+version = "0.2.0"
 description = "Turn a list of budget expenses into a Sankey diagram you can share as a PNG."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 authors = [{ name = "Oskar Jarczyk" }]
 keywords = ["sankey", "budget", "expenses", "personal-finance", "visualization", "plot"]
 classifiers = [
@@ -21,7 +21,6 @@ classifiers = [
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3 :: Only",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -38,7 +37,8 @@ dependencies = [
 [project.optional-dependencies]
 excel = ["openpyxl>=3.0"]
 html = ["plotly>=5.0"]
-all = ["openpyxl>=3.0", "plotly>=5.0"]
+seaborn = ["seaborn>=0.13"]
+all = ["openpyxl>=3.0", "plotly>=5.0", "seaborn>=0.13"]
 
 [project.scripts]
 vme = "vme.cli:main"
@@ -50,13 +50,14 @@ Issues = "https://github.com/oskar-j/visualize-my-expenses/issues"
 Changelog = "https://github.com/oskar-j/visualize-my-expenses/blob/master/CHANGELOG.md"
 
 [dependency-groups]
-# `uv sync` installs these; they include both optional extras so the whole test
-# suite runs rather than skipping the Excel and HTML cases.
+# `uv sync` installs these; they include every optional extra so the whole test
+# suite runs rather than skipping the Excel, HTML and seaborn cases.
 dev = [
     "pytest>=7.0",
     "ruff>=0.5",
     "openpyxl>=3.0",
     "plotly>=5.0",
+    "seaborn>=0.13",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -73,11 +74,12 @@ addopts = "-q"
 
 [tool.ruff]
 line-length = 100
-target-version = "py39"
+target-version = "py310"
 src = ["src", "tests"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4"]
-# The package supports Python 3.9, so typing.Optional / Dict / List stay as they
-# are; C408's dict(...) calls are the idiomatic form for click settings.
+# typing.Optional / Dict / List stay, as written when Python 3.9 was supported;
+# moving the code to `X | None` and `dict[...]` is a change of its own. C408's
+# dict(...) calls are the idiomatic form for click settings.
 ignore = ["UP006", "UP007", "UP035", "UP045", "C408"]
