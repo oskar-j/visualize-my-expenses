@@ -32,14 +32,15 @@ of its own:
 uv tool install vme-py        # or: pipx install vme-py
 ```
 
-Python 3.9 or newer. The core needs only `click` and `matplotlib` — no browser,
-no headless Chrome, no network. Two optional extras:
+Python 3.10 or newer. The core needs only `click` and `matplotlib` — no browser,
+no headless Chrome, no network. Three optional extras:
 
 | Extra | Adds | For |
 |---|---|---|
 | `vme-py[excel]` | `openpyxl` | reading `.xlsx` workbooks |
 | `vme-py[html]` | `plotly` | writing an interactive `.html` version |
-| `vme-py[all]` | both | |
+| `vme-py[seaborn]` | `seaborn` (and with it `pandas`) | the seaborn look: `--engine seaborn` |
+| `vme-py[all]` | all three | |
 
 ```bash
 pip install "vme-py[all]"
@@ -50,7 +51,7 @@ To work on the code, install from a clone instead:
 ```bash
 git clone https://github.com/oskar-j/visualize-my-expenses
 cd visualize-my-expenses
-uv sync                       # .venv as pinned by uv.lock: the package, both extras, the dev tools
+uv sync                       # .venv as pinned by uv.lock: the package, every extra, the dev tools
 # or: python -m venv .venv && source .venv/bin/activate && pip install -e ".[all]"
 ```
 
@@ -149,6 +150,31 @@ error: rows are in EUR (Euro), UAH (Ukrainian hryvnia) but the report is in PLN.
 Give a rate for each one, for example:  --rate EUR=4.30   (one EUR is worth 4.30 PLN)
 ```
 
+## Engines
+
+The chart is always drawn by matplotlib; the engine decides how it looks.
+
+```bash
+vme render budget.csv                                    # vme's own look
+vme render budget.csv --engine seaborn                   # seaborn's
+vme render budget.csv --engine seaborn --palette colorblind --context talk
+```
+
+- **`matplotlib`** (the default) is vme's own palette, checked for colour-blind
+  separation and for contrast against its background, and vme's font stack.
+- **`seaborn`** takes seaborn's look: a seaborn palette for the categories
+  (`deep` unless `--palette` names another, such as `colorblind`, `muted` or
+  `Set2`), seaborn's fonts, and the type sizes of a seaborn context (`notebook`
+  unless `--context` says `paper`, `talk` or `poster`). Bigger type gets a
+  taller image. Install it with `pip install "vme-py[seaborn]"`.
+
+Seaborn has no Sankey chart of its own, so it styles what matplotlib draws, and
+installing it always brings matplotlib along. Whichever engine you pick, the
+background (`--theme light` or `dark`) and the colours of income, savings and
+"Other" stay vme's. A seaborn palette loses its grey, which vme keeps for
+"Other", and gives at most 8 colours. vme does not check seaborn's palettes for
+colour-blind separation or contrast the way it checks its own.
+
 ## Command line
 
 ```
@@ -172,6 +198,8 @@ Useful `render` options:
 | `--max-labels 6` | most detail rows to show inside one category |
 | `--no-detail` | stop at categories, skip the label column |
 | `--theme dark` | dark background |
+| `--engine seaborn` | seaborn's palette, fonts and type sizes (see [Engines](#engines)) |
+| `--palette colorblind` | which seaborn palette; `--context talk` for bigger type |
 | `--width 1600 --dpi 200` | image size; height scales with the row count |
 | `--transparent` | transparent background |
 | `--sign statement` | force how a negative amount is read |
@@ -220,8 +248,9 @@ v.create_png("august.png", width=1600, dpi=200)
 | `problems()` | what is wrong with the rows, as a list |
 
 Constructor arguments: `currency`, `rates`, `period`, `sign`, `title`,
-`subtitle`, `theme`, `top_categories`, `max_labels`, `min_share`, `detail`,
-`show_savings`, `group_income`, `verbose`.
+`subtitle`, `theme`, `engine`, `palette`, `context`, `top_categories`,
+`max_labels`, `min_share`, `detail`, `show_savings`, `group_income`, `verbose`.
+For example, `Visualizer(rows, engine="seaborn", palette="colorblind")`.
 
 Below `Visualizer` sit `vme.io` (loading), `vme.sankey` (rows → graph),
 `vme.plotting` (graph → picture) and `vme.currencies`; each is usable on its own.
@@ -251,6 +280,7 @@ src/vme/
   data_store.py   row storage, sign conventions, conversion, validation
   sankey.py       rows -> graph (folding, savings branch)
   plotting.py     layout + the matplotlib and plotly backends
+  engines.py      the look an engine gives: palette, fonts, type scale
   theme.py        light and dark palettes
   cli.py          the click commands
 ```
@@ -261,7 +291,7 @@ reading of the chart depends on telling two colours apart.
 
 ### Releasing
 
-Every pull request is linted, tested (Linux on Python 3.9–3.14, plus macOS and
+Every pull request is linted, tested (Linux on Python 3.10–3.14, plus macOS and
 Windows) and built into a wheel that is installed and run. A merge to `master`
 does all of that again and then publishes to PyPI — but only if the version in
 `pyproject.toml` is not on PyPI yet. So a release is three steps:

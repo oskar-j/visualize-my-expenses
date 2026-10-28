@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 from click.testing import CliRunner
 
@@ -121,6 +123,35 @@ class TestRender:
         import struct
         with open(out, "rb") as handle:
             assert struct.unpack(">II", handle.read(24)[16:24]) == (900, 600)
+
+
+class TestEngineFlags:
+    def test_seaborn_engine_writes_a_png(self, run, budget, tmp_path):
+        pytest.importorskip("seaborn")
+        out = tmp_path / "sns.png"
+        result = run("render", budget, "-c", "PLN", "-o", out,
+                     "--engine", "seaborn", "--palette", "colorblind", "--context", "talk")
+        assert result.exit_code == 0 and out.stat().st_size > 5_000
+
+    def test_a_seaborn_option_without_the_engine_says_what_to_add(self, run, budget, tmp_path):
+        result = run("render", budget, "--palette", "deep", "-o", tmp_path / "x.png")
+        assert result.exit_code == 2 and "--engine seaborn" in result.output
+
+    def test_an_unknown_palette_is_refused_before_drawing(self, run, budget, tmp_path):
+        pytest.importorskip("seaborn")
+        out = tmp_path / "x.png"
+        result = run("render", budget, "--engine", "seaborn", "--palette", "wibble", "-o", out)
+        assert result.exit_code == 2 and "not a seaborn palette" in result.output
+        assert not out.exists()
+
+    def test_without_seaborn_the_error_says_how_to_install_it(self, run, budget, tmp_path,
+                                                               monkeypatch):
+        monkeypatch.setitem(sys.modules, "seaborn", None)
+        result = run("render", budget, "--engine", "seaborn", "-o", tmp_path / "x.png")
+        assert result.exit_code == 2 and 'pip install "vme-py[seaborn]"' in result.output
+
+    def test_formats_names_the_engines(self, run):
+        assert "seaborn (needs vme-py[seaborn])" in run("formats").output
 
 
 class TestCurrencyFlags:

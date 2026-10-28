@@ -43,7 +43,7 @@ def load_excel(path: str, sheet: Optional[str] = None, default_currency: str = "
     header = [str(cell).strip() if cell is not None else "" for cell in rows[0]]
     records = []
     for number, row in enumerate(rows[1:], start=2):
-        record = {key: value for key, value in zip(header, row) if key}
+        record = {key: value for key, value in zip(header, row, strict=False) if key}
         if any(value not in (None, "") for value in record.values()):
             records.append((number, record))
     # Real date cells arrive as datetimes; only dates typed as text are ambiguous.
@@ -59,7 +59,7 @@ def load_excel(path: str, sheet: Optional[str] = None, default_currency: str = "
     if not expenses:
         raise LoaderError(f"{path}: sheet {worksheet.title!r} has a header but no rows")
     warn_unread_dates((f"{path}:{worksheet.title}:{number}", pick(record, "date"), expense.date)
-                      for (number, record), expense in zip(records, expenses))
+                      for (number, record), expense in zip(records, expenses, strict=True))
     return expenses
 
 
