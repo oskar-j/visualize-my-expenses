@@ -112,6 +112,82 @@ class TestBuildGraph:
         assert not build_graph([], currency="PLN")
 
 
+def with_own_other(gifts=300, misc=100):
+    """Issue #7: the data has its own "Other" next to categories small enough to fold."""
+    return [spend("Housing", "Rent", 1000), spend("Food", "Lidl", 500),
+            spend("Other", "Gifts", gifts), spend("Other", "Misc", misc),
+            spend("Fun", "Cinema", 50), spend("Pets", "Vet", 40)]
+
+
+def outflow(graph, key):
+    return sum((link.value for link in graph.links if link.source == key), Decimal("0"))
+
+
+class TestACategoryCalledOther:
+    def test_it_takes_in_the_folded_categories_and_keeps_its_labels(self):
+        graph = build_graph(with_own_other(), currency="PLN",
+                            options=GraphOptions(top_categories=3))
+        other = graph.node("cat:Other")
+        assert other.value == Decimal("490")
+        assert outflow(graph, "cat:Other") == Decimal("490")
+        leaves = {n.label: n.value for n in graph.nodes_at(2) if n.key.startswith("leaf:Other/")}
+        assert leaves == {"Gifts": 300, "Misc": 100, "Fun": 50, "Pets": 40}
+
+    def test_one_small_enough_to_fold_keeps_its_labels_too(self):
+        graph = build_graph(with_own_other(gifts=30, misc=10), currency="PLN",
+                            options=GraphOptions(top_categories=2))
+        assert graph.node("cat:Other").value == Decimal("130")
+        assert outflow(graph, "cat:Other") == Decimal("130")
+        assert graph.node("leaf:Other/Gifts").value == Decimal("30")
+
+    def test_there_is_only_one_other_node(self):
+        graph = build_graph(with_own_other(), currency="PLN",
+                            options=GraphOptions(top_categories=3))
+        assert [n.label for n in graph.nodes_at(1)].count("Other") == 1
+
+    def test_holding_folded_categories_makes_it_grey_down_to_its_labels(self):
+        theme = get_theme("light")
+        graph = build_graph(with_own_other(), currency="PLN", theme=theme,
+                            options=GraphOptions(top_categories=3))
+        assert graph.node("cat:Other").color == theme.other
+        assert {n.color for n in graph.nodes if n.key.startswith("leaf:Other/")} == {theme.other}
+
+    def test_the_bucket_does_not_use_up_a_palette_slot(self):
+        theme = get_theme("light")
+        rows = [spend("Housing", "Rent", 1000), spend("Other", "Gifts", 300),
+                spend("Food", "Lidl", 200), spend("Fun", "Cinema", 50)]
+        graph = build_graph(rows, currency="PLN", theme=theme,
+                            options=GraphOptions(top_categories=3))
+        assert graph.node("cat:Food").color == theme.categorical[1]
+
+    def test_with_nothing_folded_it_is_an_ordinary_category(self):
+        theme = get_theme("light")
+        graph = build_graph(with_own_other(), currency="PLN", theme=theme)
+        other = graph.node("cat:Other")
+        assert other.value == Decimal("400") and other.color in theme.categorical
+        assert graph.node("leaf:Other/Fun") is None
+
+    def test_a_label_called_other_merges_with_the_folded_labels(self):
+        rows = [spend("Food", "Other", 5)] + [spend("Food", f"Shop {i}", 10 + i)
+                                              for i in range(6)]
+        graph = build_graph(rows, currency="PLN", options=GraphOptions(max_labels=3))
+        others = [n for n in graph.nodes_at(2) if n.label == "Other"]
+        assert len(others) == 1 and outflow(graph, "cat:Food") == graph.node("cat:Food").value
+
+    @pytest.mark.parametrize("options", [
+        dict(), dict(top_categories=1), dict(top_categories=2), dict(top_categories=3),
+        dict(min_share=5), dict(min_share=20), dict(top_categories=3, max_labels=1),
+    ])
+    def test_every_category_passes_on_exactly_what_it_holds(self, options):
+        rows = with_own_other() + [spend("Food", f"Shop {i}", 5) for i in range(8)]
+        graph = build_graph(rows, currency="PLN", options=GraphOptions(**options))
+        categories = graph.nodes_at(1)
+        assert sum(n.value for n in categories) == sum(r.amount for r in rows)
+        for node in categories:
+            sent = outflow(graph, node.key)
+            assert sent in (0, node.value), node.key   # 0: no detail column of its own
+
+
 class TestLayout:
     def test_every_node_is_placed(self, rows):
         graph = build_graph(rows, currency="PLN")
