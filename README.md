@@ -186,6 +186,11 @@ vme currencies        list the known currencies
 vme sample   FILE     write an example file to start from
 ```
 
+`render`, `summary` and `check` read a file the same way, with the same
+options: `-f`, `-c`, `--rate`, `--rates`, `-m`/`-y`/`-p`, `--sign`, `--sheet`,
+`--encoding`, `--delimiter` and `--dayfirst`/`--monthfirst`. A file that
+`check` passes, `render` draws.
+
 Useful `render` options:
 
 | Option | Does |

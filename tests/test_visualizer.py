@@ -2,15 +2,17 @@
 
 from __future__ import annotations
 
+import logging
 import struct
 import warnings
 from decimal import Decimal
 
 import pytest
+from matplotlib import font_manager
 
 from vme import Visualizer
 from vme.data_store import CurrencyError
-from vme.plotting import MAX_AUTO_HEIGHT, RenderWarning
+from vme.plotting import MAX_AUTO_HEIGHT, RenderWarning, _QuietWeightNote, render
 from vme.theme import get_theme
 
 
@@ -168,6 +170,76 @@ class TestRendering:
         out = tmp_path / "plot.html"
         Visualizer(rows, currency="PLN").save(str(out))
         assert out.stat().st_size > 1_000
+
+
+WEIGHT_NOTE = "findfont: Failed to find font weight"
+
+
+@pytest.fixture
+def weight_notes(caplog):
+    """The weight notes matplotlib logs, from font lookups made fresh for the test.
+
+    matplotlib caches every font lookup for the life of the process, and only a
+    lookup logs, so the cache is cleared first: otherwise a test drawing after
+    another one would pass without anything to quieten.
+    """
+    font_manager.FontManager._findfont_cached.cache_clear()
+    caplog.set_level(logging.WARNING, logger="matplotlib.font_manager")
+    yield lambda: [r for r in caplog.records if r.getMessage().startswith(WEIGHT_NOTE)]
+    font_manager.FontManager._findfont_cached.cache_clear()
+
+
+def notes_missing_weights():
+    """Whether this matplotlib logs the note at all: 3.11 does, 3.10 does not."""
+    font_manager.FontManager._findfont_cached.cache_clear()
+    logger, seen = logging.getLogger("matplotlib.font_manager"), []
+    grab = logging.Handler()
+    grab.emit = lambda record: seen.append(record.getMessage())
+    logger.addHandler(grab)
+    try:
+        font_manager.findfont(font_manager.FontProperties(family="DejaVu Sans", weight="medium"))
+    finally:
+        logger.removeHandler(grab)
+        font_manager.FontManager._findfont_cached.cache_clear()
+    return any(message.startswith(WEIGHT_NOTE) for message in seen)
+
+
+needs_the_note = pytest.mark.skipif(not notes_missing_weights(),
+                                    reason="this matplotlib does not log the weight note")
+
+
+class TestFontWeightNote:
+    """Issue #21: every render printed "findfont: Failed to find font weight ..." lines."""
+
+    @needs_the_note
+    @pytest.mark.parametrize("engine", ["matplotlib", "seaborn"])
+    def test_drawing_a_chart_logs_no_weight_note(self, rows, tmp_path, weight_notes, engine):
+        if engine == "seaborn":
+            pytest.importorskip("seaborn")
+        Visualizer(rows, currency="PLN", engine=engine).create_png(str(tmp_path / "a.png"))
+        assert weight_notes() == []
+
+    @needs_the_note
+    def test_a_figure_from_render_saves_quietly_too(self, rows, tmp_path, weight_notes):
+        v = Visualizer(rows, currency="PLN", title="August")
+        figure = render(v.graph(), theme=v.theme())
+        figure.savefig(str(tmp_path / "own.png"))       # outside vme's save()
+        assert weight_notes() == []
+
+    @needs_the_note
+    def test_your_own_plots_still_get_the_note(self, rows, tmp_path, weight_notes):
+        Visualizer(rows, currency="PLN").create_png(str(tmp_path / "a.png"))
+        font_manager.FontManager._findfont_cached.cache_clear()
+        font_manager.findfont(font_manager.FontProperties(family="DejaVu Sans", weight="medium"))
+        assert weight_notes(), "the filter outlived vme's drawing"
+
+    def test_only_that_note_is_dropped(self):
+        def record(message):
+            return logging.LogRecord("matplotlib.font_manager", logging.WARNING, __file__, 1,
+                                     message, ("x", "y", "z"), None)
+        quiet = _QuietWeightNote()
+        assert not quiet.filter(record(WEIGHT_NOTE + " %s for %s, now using %s."))
+        assert quiet.filter(record("findfont: Font family %s not found."))
 
 
 class TestTheme:

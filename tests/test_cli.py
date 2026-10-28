@@ -125,6 +125,41 @@ class TestRender:
             assert struct.unpack(">II", handle.read(24)[16:24]) == (900, 600)
 
 
+class TestInputOptions:
+    """Issue #9: check told you to pass --rate, then did not accept it."""
+
+    def test_check_follows_its_own_hint(self, run, mixed):
+        hint = run("check", mixed, "-c", "PLN")
+        assert hint.exit_code == 2 and "--rate EUR=4.30" in hint.output
+        result = run("check", mixed, "-c", "PLN",
+                     "--rate", "EUR=4.30", "--rate", "UAH=0.095")
+        assert result.exit_code == 0 and "3 rows look fine" in result.output
+
+    def test_check_takes_a_rates_file(self, run, mixed, tmp_path):
+        rates = tmp_path / "rates.json"
+        rates.write_text('{"EUR": 4.30, "UAH": 0.095}', encoding="utf-8")
+        assert run("check", mixed, "-c", "PLN", "--rates", rates).exit_code == 0
+
+    def test_check_reads_the_same_period_as_render(self, run, budget):
+        result = run("check", budget, "-c", "PLN", "-m", "2026-08")
+        assert result.exit_code == 0 and "4 rows look fine" in result.output
+
+    def test_summary_takes_a_delimiter(self, run, tmp_path):
+        path = tmp_path / "pipe.txt"
+        path.write_text("category|label|amount\nFood|Lidl|12.50\n", encoding="utf-8")
+        result = run("summary", path, "-c", "PLN", "--delimiter", "|")
+        assert result.exit_code == 0 and "Lidl" in result.output
+
+    def test_every_command_that_reads_a_file_takes_the_same_options(self):
+        from vme.cli import INPUT_OPTIONS
+
+        expected = {"fmt", "currency", "rates", "rates_file", "month", "year", "period",
+                    "sign", "sheet", "encoding", "delimiter", "dayfirst"}
+        assert len(INPUT_OPTIONS) == len(expected)
+        for name in ("render", "summary", "check"):
+            assert expected <= {param.name for param in main.commands[name].params}, name
+
+
 class TestEngineFlags:
     def test_seaborn_engine_writes_a_png(self, run, budget, tmp_path):
         pytest.importorskip("seaborn")
