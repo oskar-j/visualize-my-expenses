@@ -10,6 +10,30 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.2.1]
+
+Two fixes for the command line: `vme check` takes the options its own errors
+ask for, and rendering no longer prints font warnings with matplotlib 3.11.
+
+### Fixed
+
+- **`vme check` takes `--rate`, and every other option `render` reads a file
+  with** (#9). On a file in several currencies, `check` said to pass
+  `--rate EUR=4.30`, then refused it as an unknown option, so it could never
+  pass such a file. `render`, `summary` and `check` now share one set of
+  input options: `-f`, `-c`, `--rate`, `--rates`, `-m`/`-y`/`-p`, `--sign`,
+  `--sheet`, `--encoding`, `--delimiter` and `--dayfirst`/`--monthfirst`. A
+  file that `check` passes, `render` draws. `summary` gains `--delimiter`.
+- **Rendering no longer prints "findfont: Failed to find font weight ..."**
+  (#21). With matplotlib 3.11, which a fresh install gets, every render
+  printed several of these lines. vme draws names in a medium weight and the
+  title in semibold where the font has them. matplotlib 3.11 also checks the
+  fallback fonts kept for characters the first font lacks, and warns for each
+  one without those weights, even though it then uses the nearest weight as
+  before. vme now silences that one warning, and only while it draws. Other
+  font warnings, and your own matplotlib plots, are untouched, and charts
+  look exactly as before.
+
 ## [0.2.0]
 
 A choice of look: vme's own, or seaborn's. Also, Python 3.10 is now the oldest
@@ -249,6 +273,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.2.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.1
 [0.2.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.0
 [0.1.4]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.4
 [0.1.3]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.3

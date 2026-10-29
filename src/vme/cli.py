@@ -25,9 +25,39 @@ from .visualizer import HTML_SUFFIXES, IMAGE_SUFFIXES, Visualizer
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], max_content_width=100)
 
-DATE_ORDER = click.option(
-    "--dayfirst/--monthfirst", default=None,
-    help="How to read dates like 03/04/2026. Worked out from the file when omitted.")
+#: The options of every command that reads a file. Defined once, so render,
+#: summary and check cannot drift apart: a hint that one of them prints, such
+#: as "--rate EUR=4.30", works on all three.
+INPUT_OPTIONS = (
+    click.option("-f", "--format", "fmt", type=click.Choice(sorted(FORMATS)),
+                 help="Input format. Guessed from the file name when omitted."),
+    click.option("-c", "--currency", default="USD", show_default=True,
+                 help="Currency the report is in."),
+    click.option("--rate", "rates", multiple=True, metavar="CODE=FACTOR",
+                 help="Convert another currency into --currency, e.g. --rate EUR=4.30. "
+                      "Repeatable."),
+    click.option("--rates", "rates_file", metavar="FILE",
+                 type=click.Path(exists=True, dir_okay=False, readable=True),
+                 help="JSON or CSV file of conversion rates. --rate flags override it."),
+    click.option("-m", "--month", metavar="YYYY-MM", help="Only this month."),
+    click.option("-y", "--year", metavar="YYYY", help="Only this year."),
+    click.option("-p", "--period", metavar="START..END", help="Only this date range."),
+    click.option("--sign", type=click.Choice(SIGN_CONVENTIONS), default="auto",
+                 show_default=True,
+                 help="What a negative amount means when the file does not say."),
+    click.option("--sheet", help="Worksheet name, for Excel input."),
+    click.option("--encoding", help="Input encoding. Autodetected when omitted."),
+    click.option("--delimiter", help="Column separator, for CSV input. Sniffed when omitted."),
+    click.option("--dayfirst/--monthfirst", default=None,
+                 help="How to read dates like 03/04/2026. Worked out from the file when omitted."),
+)
+
+
+def input_options(command: Any) -> Any:
+    """Add :data:`INPUT_OPTIONS` to ``command``, in that order in its --help."""
+    for option in reversed(INPUT_OPTIONS):
+        command = option(command)
+    return command
 
 
 def _fail(message: str, hint: str = "") -> None:
@@ -94,18 +124,7 @@ def main(ctx: click.Context) -> None:
 @click.option("-o", "--output", default="expenses.png", show_default=True,
               type=click.Path(dir_okay=False, writable=True),
               help="Where to write the picture (.png, .svg, .pdf, or .html).")
-@click.option("-f", "--format", "fmt", type=click.Choice(sorted(FORMATS)),
-              help="Input format. Guessed from the file name when omitted.")
-@click.option("-c", "--currency", default="USD", show_default=True,
-              help="Currency the report is drawn in.")
-@click.option("--rate", "rates", multiple=True, metavar="CODE=FACTOR",
-              help="Convert another currency into --currency, e.g. --rate EUR=4.30. Repeatable.")
-@click.option("--rates", "rates_file", metavar="FILE",
-              type=click.Path(exists=True, dir_okay=False, readable=True),
-              help="JSON or CSV file of conversion rates. --rate flags override it.")
-@click.option("-m", "--month", metavar="YYYY-MM", help="Only this month.")
-@click.option("-y", "--year", metavar="YYYY", help="Only this year.")
-@click.option("-p", "--period", metavar="START..END", help="Only this date range.")
+@input_options
 @click.option("-t", "--title", default="", help="Heading drawn on the plot.")
 @click.option("--subtitle", default="", help="Second line under the heading.")
 @click.option("--theme", type=click.Choice(sorted(THEMES)), default="light",
@@ -117,9 +136,6 @@ def main(ctx: click.Context) -> None:
               help="Seaborn palette for the categories, e.g. colorblind. Needs --engine seaborn.")
 @click.option("--context", type=click.Choice(CONTEXTS),
               help="Seaborn type size (default notebook). Needs --engine seaborn.")
-@click.option("--sign", type=click.Choice(SIGN_CONVENTIONS), default="auto",
-              show_default=True,
-              help="What a negative amount means when the file does not say.")
 @click.option("--top", "top_categories", type=click.IntRange(1, 40), metavar="N",
               help="Keep the N biggest categories, fold the rest into 'Other'.")
 @click.option("--max-labels", type=click.IntRange(1, 40), default=6, show_default=True,
@@ -137,24 +153,15 @@ def main(ctx: click.Context) -> None:
               help="Dots per inch.")
 @click.option("--transparent", is_flag=True, help="Transparent background.")
 @click.option("--no-percent", is_flag=True, help="Hide the percentage next to each amount.")
-@click.option("--sheet", help="Worksheet name, for Excel input.")
-@click.option("--encoding", help="Input encoding. Autodetected when omitted.")
-@click.option("--delimiter", help="Column separator, for CSV input. Sniffed when omitted.")
-@DATE_ORDER
 @click.option("--open", "open_after", is_flag=True, help="Open the result when done.")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the output path.")
 @click.option("-v", "--verbose", is_flag=True, help="Explain what is being filtered out.")
-def render(source: str, output: str, fmt: Optional[str], currency: str,
-           rates: Tuple[str, ...], rates_file: Optional[str],
-           month: Optional[str], year: Optional[str],
-           period: Optional[str], title: str, subtitle: str, theme: str,
-           engine: str, palette: Optional[str], context: Optional[str], sign: str,
-           top_categories: Optional[int], max_labels: int, min_share: float,
-           no_detail: bool, no_savings: bool, group_income: bool, width: int,
-           height: Optional[int], dpi: int, transparent: bool, no_percent: bool,
-           sheet: Optional[str], encoding: Optional[str], delimiter: Optional[str],
-           dayfirst: Optional[bool], open_after: bool, quiet: bool,
-           verbose: bool) -> None:
+def render(source: str, output: str, title: str, subtitle: str, theme: str, engine: str,
+           palette: Optional[str], context: Optional[str], top_categories: Optional[int],
+           max_labels: int, min_share: float, no_detail: bool, no_savings: bool,
+           group_income: bool, width: int, height: Optional[int], dpi: int,
+           transparent: bool, no_percent: bool, open_after: bool, quiet: bool,
+           verbose: bool, **inputs: Any) -> None:
     """Draw SOURCE as a Sankey diagram.
 
     \b
@@ -175,19 +182,13 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
     except (ValueError, ImportError) as exc:
         _fail(str(exc))
 
-    loader_options = {k: v for k, v in (
-        ("sheet", sheet), ("encoding", encoding), ("delimiter", delimiter),
-        ("dayfirst", dayfirst)) if v is not None}
-
-    visualizer = _build(source, fmt, currency, loader_options, dict(
-        title=title, subtitle=subtitle, theme=theme, sign=sign,
+    visualizer = _read(
+        source, inputs, title=title, subtitle=subtitle, theme=theme,
         engine=engine, palette=palette, context=context,
-        rates=_parse_rates(rates, rates_file, currency),
-        period=_period(month, year, period),
         verbose=verbose, detail=not no_detail, top_categories=top_categories,
         max_labels=max_labels, min_share=min_share, show_savings=not no_savings,
         group_income=group_income,
-    ))
+    )
 
     render_options: Dict[str, Any] = {}
     if suffix not in HTML_SUFFIXES:
@@ -223,36 +224,11 @@ def render(source: str, output: str, fmt: Optional[str], currency: str,
 
 @main.command()
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, readable=True))
-@click.option("-f", "--format", "fmt", type=click.Choice(sorted(FORMATS)),
-              help="Input format. Guessed from the file name when omitted.")
-@click.option("-c", "--currency", default="USD", show_default=True,
-              help="Currency the report is shown in.")
-@click.option("--rate", "rates", multiple=True, metavar="CODE=FACTOR",
-              help="Convert another currency into --currency. Repeatable.")
-@click.option("--rates", "rates_file", metavar="FILE",
-              type=click.Path(exists=True, dir_okay=False, readable=True),
-              help="JSON or CSV file of conversion rates.")
-@click.option("-m", "--month", metavar="YYYY-MM", help="Only this month.")
-@click.option("-y", "--year", metavar="YYYY", help="Only this year.")
-@click.option("-p", "--period", metavar="START..END", help="Only this date range.")
-@click.option("--sign", type=click.Choice(SIGN_CONVENTIONS), default="auto",
-              show_default=True)
-@click.option("--sheet", help="Worksheet name, for Excel input.")
-@click.option("--encoding", help="Input encoding. Autodetected when omitted.")
-@DATE_ORDER
-@click.option("-v", "--verbose", is_flag=True)
-def summary(source: str, fmt: Optional[str], currency: str, rates: Tuple[str, ...],
-            rates_file: Optional[str],
-            month: Optional[str], year: Optional[str], period: Optional[str],
-            sign: str, sheet: Optional[str], encoding: Optional[str],
-            dayfirst: Optional[bool], verbose: bool) -> None:
+@input_options
+@click.option("-v", "--verbose", is_flag=True, help="Explain what is being filtered out.")
+def summary(source: str, verbose: bool, **inputs: Any) -> None:
     """Print the breakdown as a table, without drawing anything."""
-    loader_options = {k: v for k, v in (("sheet", sheet), ("encoding", encoding),
-                                        ("dayfirst", dayfirst)) if v is not None}
-    visualizer = _build(source, fmt, currency, loader_options, dict(
-        sign=sign, rates=_parse_rates(rates, rates_file, currency),
-        period=_period(month, year, period), verbose=verbose,
-    ))
+    visualizer = _read(source, inputs, verbose=verbose)
     try:
         visualizer.print_to_console()
     except (ValueError, CurrencyError) as exc:
@@ -261,16 +237,14 @@ def summary(source: str, fmt: Optional[str], currency: str, rates: Tuple[str, ..
 
 @main.command()
 @click.argument("source", type=click.Path(exists=True, dir_okay=False, readable=True))
-@click.option("-f", "--format", "fmt", type=click.Choice(sorted(FORMATS)))
-@click.option("-c", "--currency", default="USD", show_default=True)
-@click.option("--sign", type=click.Choice(SIGN_CONVENTIONS), default="auto",
-              show_default=True)
-@DATE_ORDER
-def check(source: str, fmt: Optional[str], currency: str, sign: str,
-          dayfirst: Optional[bool]) -> None:
-    """Read SOURCE and report anything that would stop it being plotted."""
-    loader_options = {} if dayfirst is None else {"dayfirst": dayfirst}
-    visualizer = _build(source, fmt, currency, loader_options, dict(sign=sign))
+@input_options
+def check(source: str, **inputs: Any) -> None:
+    """Read SOURCE and report anything that would stop it being plotted.
+
+    It reads the file with the same options as render, so a file that passes
+    here draws there.
+    """
+    visualizer = _read(source, inputs)
     try:
         visualizer.prepare()
     except (ValueError, CurrencyError) as exc:
@@ -361,6 +335,19 @@ def sample(destination: str, kind: str, force: bool) -> None:
 
 
 # --------------------------------------------------------------------------- #
+
+
+def _read(source: str, inputs: Dict[str, Any], **kwargs: Any) -> Visualizer:
+    """Read SOURCE as :data:`INPUT_OPTIONS` say; ``kwargs`` go to the Visualizer."""
+    loader_options = {key: inputs[key] for key in ("sheet", "encoding", "delimiter", "dayfirst")
+                      if inputs[key] is not None}
+    currency = inputs["currency"]
+    return _build(source, inputs["fmt"], currency, loader_options, dict(
+        sign=inputs["sign"],
+        rates=_parse_rates(inputs["rates"], inputs["rates_file"], currency),
+        period=_period(inputs["month"], inputs["year"], inputs["period"]),
+        **kwargs,
+    ))
 
 
 def _build(source: str, fmt: Optional[str], currency: str,

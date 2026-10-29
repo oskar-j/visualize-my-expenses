@@ -7,10 +7,12 @@ backend (interactive HTML) both consume the same placement.
 
 from __future__ import annotations
 
+import functools
+import logging
 import warnings
 from dataclasses import dataclass, field
 from decimal import Decimal
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple, TypeVar
 
 from .currencies import format_money, get_currency
 from .models import Link, Node, SankeyGraph
@@ -25,6 +27,42 @@ class RenderWarning(UserWarning):
 
 
 ZERO = Decimal("0")
+
+#: The start of what matplotlib 3.11 logs when a font lacks the weight asked for.
+_WEIGHT_NOTE = "findfont: Failed to find font weight"
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+
+class _QuietWeightNote(logging.Filter):
+    """Drop matplotlib's weight-fallback note and nothing else."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return not str(record.msg).startswith(_WEIGHT_NOTE)
+
+
+def _quiet_weight_note(function: _F) -> _F:
+    """Run ``function`` without matplotlib's note about missing font weights.
+
+    Names are drawn ``medium`` and the title ``semibold``, where the font has
+    those weights (Helvetica Neue does). matplotlib 3.11 looks up every family
+    of the stack, including the fallbacks kept for characters the first font
+    lacks, and logs a warning for each one without the weight, though it then
+    uses the nearest weight exactly as before. Asking only for weights every
+    family has would cost Helvetica Neue Medium its medium; dropping the
+    fallbacks would lose characters. So only that note is silenced, and only
+    while vme draws: other font warnings, and your own plots, are untouched.
+    """
+    @functools.wraps(function)
+    def quietly(*args: Any, **kwargs: Any) -> Any:
+        logger = logging.getLogger("matplotlib.font_manager")
+        quiet = _QuietWeightNote()
+        logger.addFilter(quiet)
+        try:
+            return function(*args, **kwargs)
+        finally:
+            logger.removeFilter(quiet)
+    return quietly  # type: ignore[return-value]
 
 #: Node ordering rank per node kind -- savings always sinks to the bottom.
 _KIND_RANK = {"income": 0, "hub": 0, "category": 0, "leaf": 0, "savings": 9}
@@ -242,6 +280,7 @@ def _fit(text: str, font_pt: float, inches: float, weight: str = "normal",
     return text[:low].rstrip() + "\u2026" if low >= 2 else ""
 
 
+@_quiet_weight_note
 def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
            height: Optional[int] = None, dpi: int = 200, show_values: bool = True,
            show_percent: bool = True, node_width: float = 0.013,
@@ -272,6 +311,16 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
 
     def inches(text: str, size: float, weight: str = "normal") -> float:
         return _text_inches(text, size, weight, font)
+
+    # Look up the font of each weight drawn here while the weight note is quiet,
+    # so a figure saved later, outside save(), does not log it either. Measuring
+    # would look them up too, but measurements are cached from chart to chart.
+    from matplotlib.font_manager import FontProperties
+    from matplotlib.textpath import TextPath
+
+    for size, weight in ((base_pt, "medium"), (title_pt, "semibold")):
+        TextPath((0, 0), "x", size=size,
+                 prop=FontProperties(family=font, weight=weight, size=size))
 
     first, last = layout.columns[0], layout.columns[-1]
     total = graph.total or Decimal("1")
@@ -457,6 +506,7 @@ def render(graph: SankeyGraph, theme: Optional[Theme] = None, width: int = 1600,
     return fig
 
 
+@_quiet_weight_note
 def save(graph: SankeyGraph, path: str, theme: Optional[Theme] = None,
          transparent: bool = False, **options) -> str:
     """Render ``graph`` and write it to ``path`` (``.png``, ``.svg`` or ``.pdf``)."""
@@ -471,6 +521,7 @@ def save(graph: SankeyGraph, path: str, theme: Optional[Theme] = None,
     return str(path)
 
 
+@_quiet_weight_note
 def show(graph: SankeyGraph, theme: Optional[Theme] = None, **options) -> None:
     """Open the plot in an interactive window."""
     import matplotlib.pyplot as plt

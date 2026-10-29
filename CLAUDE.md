@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 410 tests, ~9s
+uv run pytest                            # 420 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -88,6 +88,11 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
 - **Fonts reach the measuring code, not just the text.** `render` measures every label with its
   `inches` helper in the engine's stack; measuring in one font and drawing in another brings back
   overlapping labels. The auto height scales with `font_scale` for the same reason.
+- **matplotlib's "Failed to find font weight" note is silenced on purpose,** and only while vme
+  draws (`plotting._quiet_weight_note` on `render`, `save` and `show`). matplotlib 3.11 logs it for
+  every fallback family lacking `medium`/`semibold`; asking only for weights every family has
+  would lose Helvetica Neue Medium. `render` looks up each weight's font up front so a caller's
+  own `savefig` stays quiet too.
 - **Every node keeps a visible name.** When a name cannot fit beside its value, the name is
   shortened, and if nothing of it would be left, the value is dropped instead.
 - **Rendering tests must use the Agg backend** (`tests/conftest.py` sets it).
@@ -123,6 +128,9 @@ section, merge.
 - Python 3.10 or newer (3.9 was dropped in 0.2.0). `typing.Optional`/`Dict`/`List` stay from the
   3.9 days, and ruff's PEP 604/585 rules stay off until the code moves over in one change. Every
   `zip()` says `strict=` (ruff B905): `True` where the inputs are one-to-one by construction.
+- **Options for reading a file live in `cli.INPUT_OPTIONS`**, applied with `@input_options` to
+  `render`, `summary` and `check` and turned into a `Visualizer` by `_read`. Add a new one there,
+  not to one command: a hint printed by any command (`--rate EUR=4.30`) has to work on all three.
 - Errors that a user can act on say what to do (`--rate EUR=4.30`, `pip install "vme-py[excel]"`).
   Loader errors name the file and line.
 - Palettes are validated for colour-blind separation and contrast against their own surface, and
