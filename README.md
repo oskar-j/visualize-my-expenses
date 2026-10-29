@@ -1,7 +1,11 @@
 # visualize-my-expenses
 
 [![PyPI](https://img.shields.io/pypi/v/vme-py)](https://pypi.org/project/vme-py/)
+[![Python versions](https://img.shields.io/pypi/pyversions/vme-py)](https://pypi.org/project/vme-py/)
+[![Downloads](https://img.shields.io/pypi/dm/vme-py)](https://pypistats.org/packages/vme-py)
 [![CI](https://github.com/oskar-j/visualize-my-expenses/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/oskar-j/visualize-my-expenses/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/pypi/l/vme-py)](https://github.com/oskar-j/visualize-my-expenses/blob/master/LICENSE)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 
 Turn a month of budget rows into a Sankey diagram you can share as a PNG.
 
