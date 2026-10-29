@@ -10,6 +10,24 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.2.2]
+
+A row built by hand in Python is now read the way a row from a file is.
+
+### Fixed
+
+- **`Expense(kind="Income")` is income** (#11). Only the exact lower-case
+  words were recognised, so `"Income"` or `"INCOME"` was silently drawn as
+  spending. `kind` is now read in any case, and a word that is not `income`,
+  `expense` or `auto` raises a `ValueError` naming the three, where a typo
+  such as `"Incom"` used to become an expense without a word. Leaving `kind`
+  out still means an expense.
+- **`Expense(currency="€")` is stored as `EUR`** (#11). Files already
+  turned symbols into codes, but a row built by hand kept `"€"`, so a report
+  in EUR asked for a rate from € to EUR, and `"zł"` became the unknown
+  `"ZŁ"`. Symbols and codes in any case now become the ISO code, exactly as
+  when they are read from a file.
+
 ## [0.2.1]
 
 Two fixes for the command line: `vme check` takes the options its own errors
@@ -273,6 +291,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.2.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.2
 [0.2.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.1
 [0.2.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.0
 [0.1.4]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.1.4
