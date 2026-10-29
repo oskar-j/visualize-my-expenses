@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 420 tests, ~9s
+uv run pytest                            # 447 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -72,7 +72,9 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
   coerces row by row brings back files with both orders mixed. Loaders also pass every row to
   `warn_unread_dates`, so a date that cannot be read is a `LoaderWarning` (a `note:` in the CLI)
   rather than a row that silently drops out of `--month`.
-- **Constructing `Expense` directly defaults to `EXPENSE`,** not `AUTO`. Income must say `kind="income"`.
+- **Constructing `Expense` directly defaults to `EXPENSE`,** not `AUTO`. Income must say `kind="income"`
+  (any case). Any other word raises `ValueError` — it used to become an expense silently.
+  `Expense` also runs its currency through `normalise_code`, as the loaders do, so `"€"` is `"EUR"`.
 - **Currencies never convert themselves.** Rates come from the caller; nothing hits the network,
   so the same input always draws the same picture.
 - **Money formatting is per-currency** (symbol, position, decimals, separators) and rounds

@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "vme-py"
 # The one place the version lives: bump it here (`uv version --bump patch`) and
 # a merge to master publishes it. `vme.__version__` reads it back at runtime.
-version = "0.2.1"
+version = "0.2.2"
 description = "Turn a list of budget expenses into a Sankey diagram you can share as a PNG."
 readme = "README.md"
 license = "MIT"

@@ -10,15 +10,19 @@ from __future__ import annotations
 import datetime as _dt
 from dataclasses import dataclass, field, replace
 from decimal import Decimal
-from typing import Optional
+from typing import Any, Optional
 
-__all__ = ["AUTO", "EXPENSE", "INCOME", "Expense", "Node", "Link", "SankeyGraph"]
+from .currencies import normalise_code
+
+__all__ = ["AUTO", "EXPENSE", "INCOME", "KINDS", "Expense", "Node", "Link", "SankeyGraph"]
 
 EXPENSE = "expense"
 INCOME = "income"
 #: Direction not stated by the source -- resolved from the amount sign by
 #: :func:`vme.data_store.apply_sign_convention` before anything is plotted.
 AUTO = "auto"
+#: Every value :attr:`Expense.kind` can take.
+KINDS = (INCOME, EXPENSE, AUTO)
 
 UNCATEGORIZED = "Uncategorized"
 
@@ -30,6 +34,11 @@ class Expense:
     ``category`` is the coarse bucket (``"Housing"``), ``label`` the detail
     (``"Rent"``). Both are free text -- the Sankey is built from whatever
     strings you use.
+
+    ``kind`` is ``"income"``, ``"expense"`` (the default) or ``"auto"``, in any
+    case; any other word raises :class:`ValueError` rather than quietly
+    becoming an expense. ``currency`` takes an ISO code in any case or a
+    symbol: ``"€"`` and ``"eur"`` are both stored as ``"EUR"``.
     """
 
     category: str = UNCATEGORIZED
@@ -43,11 +52,12 @@ class Expense:
     def __post_init__(self) -> None:
         # Normalise in place; the dataclass is frozen, so go through object.
         category = (self.category or UNCATEGORIZED).strip() or UNCATEGORIZED
-        currency = str(self.currency).strip().upper() if self.currency else "USD"
         object.__setattr__(self, "category", category)
         object.__setattr__(self, "label", (self.label or "").strip())
-        object.__setattr__(self, "currency", currency)
-        object.__setattr__(self, "kind", self.kind if self.kind in (INCOME, AUTO) else EXPENSE)
+        # The loaders store codes the same way, so a row built by hand in "€"
+        # meets a report in EUR without needing a rate.
+        object.__setattr__(self, "currency", normalise_code(self.currency, "USD"))
+        object.__setattr__(self, "kind", _kind(self.kind))
         if not isinstance(self.amount, Decimal):
             object.__setattr__(self, "amount", Decimal(str(self.amount)))
 
@@ -87,6 +97,18 @@ class Expense:
             "kind": self.kind,
             "note": self.note,
         }
+
+
+def _kind(value: Any) -> str:
+    """``"Income"`` -> ``"income"``; left out, an expense; anything else, an error."""
+    text = str(value).strip().lower() if value is not None else ""
+    if not text:
+        return EXPENSE
+    if text in KINDS:
+        return text
+    raise ValueError(
+        f'kind must be "income", "expense" or "auto", not {value!r}'
+    )
 
 
 # --------------------------------------------------------------------------- #
