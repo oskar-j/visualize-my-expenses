@@ -188,6 +188,128 @@ class TestRowsChangedAfterDrawing:
         assert (totals["income"], totals["spent"]) == (Decimal("1000"), Decimal("50"))
 
 
+def bank(*rows):
+    """Rows the way a bank statement gives them: a description and a signed amount."""
+    return [{"date": date, "description": text, "amount": amount, "currency": "PLN"}
+            for date, text, amount in rows]
+
+
+SEPTEMBER = bank(("2026-09-01", "TRANSFER IN ACME SALARY", "5000"),
+                 ("2026-09-02", "CARD PAYMENT 02.09 LIDL 0571", "-120"),
+                 ("2026-09-09", "CARD PAYMENT 09.09 LIDL 0571", "-80"),
+                 ("2026-09-10", "TRANSFER OUT OWN ACCOUNT SAVINGS", "-1000"),
+                 ("2026-09-11", "BLIK 11.09 ALLEGRO.PL", "-60"))
+RULES = {"acme": ("Income", "Salary"), "lidl": ("Groceries", "Lidl"),
+         "own account": "skip"}
+
+
+class TestRules:
+    def test_rows_take_the_category_and_label_of_their_rule(self):
+        graph = Visualizer(SEPTEMBER, currency="PLN", rules=RULES).graph()
+        assert graph.node("cat:Groceries").value == Decimal("200")
+        assert graph.node("leaf:Groceries/Lidl") is not None
+        assert graph.node("in:Salary").value == Decimal("5000")
+
+    def test_skipped_rows_are_not_spending(self):
+        totals = Visualizer(SEPTEMBER, currency="PLN", rules=RULES).totals()
+        assert totals["spent"] == Decimal("260")
+
+    def test_the_report_says_what_the_rules_did(self):
+        rules = dict(RULES, netflix="Subscriptions")
+        report = Visualizer(SEPTEMBER, currency="PLN", rules=rules).rule_report()
+        assert (report.categorised, report.skipped) == (3, 1)
+        assert [row.label for row in report.unmatched] == ["BLIK 11.09 ALLEGRO.PL"]
+        assert [rule.match for rule in report.unused] == ["netflix"]
+        assert report.summary() == "3 rows categorised, 1 skipped, 1 matched no rule"
+
+    def test_without_rules_every_row_is_unmatched(self):
+        report = Visualizer(SEPTEMBER, currency="PLN").rule_report()
+        assert report.categorised == 0 and len(report.unmatched) == 5
+
+    def test_rules_run_before_the_sign_convention(self):
+        # An all-positive file is a list of expenses, but a row the rules call
+        # Salary is read as income, as if the file had said so.
+        rows = [{"label": "ACME SP Z O O", "amount": "5000"}, {"label": "LIDL", "amount": "50"}]
+        v = Visualizer(rows, currency="PLN", rules={"acme": ("Income", "Salary")})
+        assert v.totals()["income"] == Decimal("5000")
+
+    def test_unmatched_rows_are_reported_in_the_report_currency(self):
+        rows = bank(("2026-09-02", "CARD PAYMENT HOTEL", "-100"))
+        rows[0]["currency"] = "EUR"
+        v = Visualizer(rows, currency="PLN", rates={"EUR": 4})
+        assert v.rule_report().unmatched[0].amount == Decimal("400")
+
+    def test_the_period_limits_the_report(self):
+        rows = SEPTEMBER + bank(("2026-10-10", "TRANSFER OUT OWN ACCOUNT SAVINGS", "-1000"),
+                                ("2026-10-11", "CARD PAYMENT LIDL", "-10"))
+        report = Visualizer(rows, currency="PLN", rules=RULES, period="2026-10").rule_report()
+        assert (report.categorised, report.skipped, len(report.unmatched)) == (1, 1, 0)
+
+    def test_rows_added_later_meet_the_rules_too(self):
+        v = Visualizer(SEPTEMBER, currency="PLN", rules=RULES)
+        v.graph()
+        v.append_rows(bank(("2026-09-20", "CARD PAYMENT 20.09 LIDL 0571", "-30")))
+        assert v.graph().node("cat:Groceries").value == Decimal("230")
+
+    def test_a_rules_file(self, tmp_path):
+        path = tmp_path / "rules.csv"
+        path.write_text("match,category,label\nlidl,Groceries,Lidl\n", encoding="utf-8")
+        v = Visualizer(SEPTEMBER, currency="PLN", rules=str(path))
+        assert v.graph().node("cat:Groceries") is not None
+        assert v.rule_report().rules.source == str(path)
+
+    def test_a_bad_rules_file_fails_when_the_visualizer_is_made(self, tmp_path):
+        path = tmp_path / "rules.csv"
+        path.write_text("match,category\nre:(lidl,Groceries\n", encoding="utf-8")
+        with pytest.raises(ValueError, match="rules.csv line 2"):
+            Visualizer(SEPTEMBER, rules=str(path))
+
+
+class TestSeveralFiles:
+    @pytest.fixture
+    def files(self, tmp_path):
+        statement = tmp_path / "checking.csv"
+        statement.write_text("date,description,amount,currency\n"
+                             "2026-09-01,ACME SALARY,5000,PLN\n"
+                             "2026-09-02,LIDL,-120,PLN\n"
+                             "2026-09-28,CARD REPAYMENT,-300,PLN\n", encoding="utf-8")
+        card = tmp_path / "credit-card.csv"            # a plain list: every amount spent
+        card.write_text("date,category,label,amount,currency\n"
+                        "2026-09-05,Transport,Fuel,250,PLN\n"
+                        "2026-09-06,Shopping,Allegro,50,PLN\n", encoding="utf-8")
+        return statement, card
+
+    def test_each_file_reads_its_own_signs(self, files):
+        # Read together, the statement's negatives would make the card's
+        # positive amounts income.
+        v = Visualizer.from_files(files, currency="PLN", rules={"repayment": "skip"})
+        totals = v.totals()
+        assert (totals["income"], totals["spent"]) == (Decimal("5000"), Decimal("420"))
+
+    def test_without_the_skip_rule_the_repayment_counts_twice(self, files):
+        assert Visualizer.from_files(files, currency="PLN").totals()["spent"] == Decimal("720")
+
+    def test_the_title_names_every_file(self, files):
+        assert Visualizer.from_files(files, currency="PLN").title == "Checking + Credit Card"
+
+    def test_add_file(self, files):
+        v = Visualizer.from_file(str(files[0]), currency="PLN").add_file(files[1])
+        assert len(v.source_rows) == 5
+        assert v.totals()["income"] == Decimal("5000")
+
+    def test_rows_appended_later_go_with_the_last_file(self, files):
+        v = Visualizer.from_files(files, currency="PLN")
+        v.append_rows([{"category": "Food", "label": "Kebab", "amount": "20"}])
+        assert v.totals()["spent"] == Decimal("740")
+
+    def test_one_path_as_a_string(self, files):
+        assert len(Visualizer.from_files(str(files[1]), currency="PLN").source_rows) == 2
+
+    def test_no_files(self):
+        with pytest.raises(ValueError, match="no files"):
+            Visualizer.from_files([])
+
+
 class TestFooterAndConsole:
     def test_footer_reports_converted_totals(self):
         rows = [{"category": "Income", "label": "Pay", "amount": 100,

@@ -114,6 +114,82 @@ both ways is refused rather than guessed at. A time after the date
 as a note, with its file and line; the row still loads, but without a date, so
 `--month`, `--year` and `--period` leave it out.
 
+## Categorise a bank statement
+
+A bank export says who you paid, not what for. OFX files group the rows by how
+you paid ("Card payments"), and a CSV statement often has nothing but a
+description. A rules file turns those payees into your own budget categories.
+
+<p>
+<img alt="Before: every line of the statement is its own category" src="https://raw.githubusercontent.com/oskar-j/visualize-my-expenses/master/examples/output/statement-before.png" width="49%">
+<img alt="After: groceries, transport, housing and the rest" src="https://raw.githubusercontent.com/oskar-j/visualize-my-expenses/master/examples/output/statement-after.png" width="49%">
+</p>
+
+Left, [`examples/statement-september.csv`](https://github.com/oskar-j/visualize-my-expenses/blob/master/examples/statement-september.csv) as
+the bank wrote it; right, the same file with
+`--rules` [`examples/rules.csv`](https://github.com/oskar-j/visualize-my-expenses/blob/master/examples/rules.csv):
+
+```csv
+match,category,label
+lidl,Groceries,Lidl
+żabka,Groceries,Żabka
+orlen|shell,Transport,Fuel
+re:^card payment .* netflix,Subscriptions,Netflix
+own account savings,skip,
+```
+
+- **`match`** is looked for in each row's description (its label) and note.
+  Case, accents and extra spaces do not matter, so `żabka` finds
+  `ZABKA Z4521`. `|` separates alternatives, and `re:` starts a regular
+  expression.
+- **`category`** is what those rows become. `skip` drops them instead: money
+  moved to your own savings, or a credit card repayment when the card's own
+  statement is drawn too.
+- **`label`**, if given, renames the rows, so four Lidl branches become one
+  "Lidl".
+- The first rule that matches a row wins, so put specific rules above general
+  ones. Lines starting with `#`, and a `comment` column, are for you. `,`, `;`
+  and tab all work as separators, and a JSON file works too:
+  `{"lidl": "Groceries"}`.
+
+There is no need to write the file from scratch. `vme uncategorized` lists the
+payees no rule covers yet, biggest first, grouped by the words that name them:
+
+```
+$ vme uncategorized examples/statement-september.csv -c PLN
+28 rows match no rule (7 775 zł out, 11 250 zł in):
+  transfer in acme sp. z o.o. salary      1 row       +9 800 zł
+  standing order rent flat                1 row        3 200 zł
+  transfer out own account savings        1 row        1 500 zł
+  lidl sp. z o.o.                        4 rows          497 zł
+  ...
+```
+
+and `--write` adds them to a rules file, with the category left for you:
+
+```bash
+vme uncategorized statement.csv -c PLN --write rules.csv
+# fill in the category column; shorten a match if you like ("lidl" covers every Lidl)
+vme render statement.csv -c PLN --rules rules.csv
+vme uncategorized statement.csv -c PLN --rules rules.csv --write rules.csv  # what is left
+```
+
+A rule with an empty category does nothing, so a payee stays on the list until
+it has one. `vme check --rules rules.csv` says how many rows the rules
+categorised and skipped, and which rules matched nothing.
+
+### Several accounts
+
+Give several files to draw them as one chart:
+
+```bash
+vme render checking.ofx credit-card.csv -c PLN --rules rules.csv
+```
+
+Each file decides for itself what a negative amount means, so a bank statement
+and a plain list of expenses can be drawn together. Give the transfers between
+your accounts a `skip` rule, or they count twice.
+
 ## Multiple currencies
 
 Each row carries its own currency, and `-c/--currency` says which one the
@@ -182,18 +258,20 @@ colour-blind separation or contrast the way it checks its own.
 ## Command line
 
 ```
-vme render   SOURCE   draw a Sankey diagram
-vme summary  SOURCE   print the same breakdown as a table
-vme check    SOURCE   report anything that would stop it being plotted
-vme formats           list the input formats
-vme currencies        list the known currencies
-vme sample   FILE     write an example file to start from
+vme render         SOURCE...   draw a Sankey diagram
+vme summary        SOURCE...   print the same breakdown as a table
+vme check          SOURCE...   report anything that would stop it being plotted
+vme uncategorized  SOURCE...   list the payees no rule covers yet
+vme formats                    list the input formats
+vme currencies                 list the known currencies
+vme sample         FILE        write an example file to start from
 ```
 
-`render`, `summary` and `check` read a file the same way, with the same
-options: `-f`, `-c`, `--rate`, `--rates`, `-m`/`-y`/`-p`, `--sign`, `--sheet`,
-`--encoding`, `--delimiter` and `--dayfirst`/`--monthfirst`. A file that
-`check` passes, `render` draws.
+`render`, `summary`, `check` and `uncategorized` read files the same way, with
+the same options: `-f`, `-c`, `--rate`, `--rates`, `--rules`, `-m`/`-y`/`-p`,
+`--sign`, `--sheet`, `--encoding`, `--delimiter` and
+`--dayfirst`/`--monthfirst`. A file that `check` passes, `render` draws, and
+several files are drawn as one.
 
 Useful `render` options:
 
@@ -201,6 +279,7 @@ Useful `render` options:
 |---|---|
 | `-o out.png` | `.png`, `.svg`, `.pdf` or `.html` — picked by extension |
 | `-c PLN` | currency the report is drawn in |
+| `--rules rules.csv` | give payees categories (see [Categorise a bank statement](#categorise-a-bank-statement)) |
 | `-m 2026-08` | one month; also `-y 2026` and `-p START..END` |
 | `--top 8` | keep the 8 biggest categories, fold the rest into "Other" (your own "Other", if the data has one) |
 | `--min-share 1` | fold anything under 1% of the total |
@@ -245,9 +324,21 @@ v.print_to_console()
 v.create_png("august.png", width=1600, dpi=200)
 ```
 
+Several files, sorted by a rules file:
+
+```python
+v = Visualizer.from_files(["checking.ofx", "credit-card.csv"], currency="PLN",
+                          rules="rules.csv")   # or rules={"lidl": "Groceries"}
+v.create_png("september.png")
+print(v.rule_report().summary())   # 48 rows categorised, 3 skipped, 9 matched no rule
+```
+
 | Method | Does |
 |---|---|
 | `Visualizer.from_file(path, fmt=None, ...)` | read any supported file |
+| `Visualizer.from_files(paths, ...)` | read several files into one chart |
+| `add_file(path)` | add one more file |
+| `rule_report()` | what the rules did, and the rows no rule matched |
 | `create_png(path)` | write a PNG (also `.svg`, `.pdf`) |
 | `create_html(path)` | write an interactive plotly page — needs the `html` extra |
 | `save(path)` | pick the writer from the extension |
@@ -256,7 +347,7 @@ v.create_png("august.png", width=1600, dpi=200)
 | `graph()` | the `SankeyGraph`, if you want to draw it yourself |
 | `problems()` | what is wrong with the rows, as a list |
 
-Constructor arguments: `currency`, `rates`, `period`, `sign`, `title`,
+Constructor arguments: `currency`, `rates`, `rules`, `period`, `sign`, `title`,
 `subtitle`, `theme`, `engine`, `palette`, `context`, `top_categories`,
 `max_labels`, `min_share`, `detail`, `show_savings`, `group_income`, `verbose`.
 For example, `Visualizer(rows, engine="seaborn", palette="colorblind")`.
