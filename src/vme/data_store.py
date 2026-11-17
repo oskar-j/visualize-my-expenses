@@ -242,22 +242,38 @@ class Calculator(CalculatorBase):
         self.currency = normalise_code(currency, "USD")
         self.title = ""
         self.subtitle = ""
+        self._made_subtitle = ""        # the subtitle vme wrote, so it can write it again
         self._last_graph = None
         self.set_rows(rows)
 
     # ------------------------------------------------------------- row store
+    # Two lists: the rows as loaded (`_source`) and the rows as they now stand
+    # (`rows`), which `_prepare` derives from the loaded ones every time. Adding
+    # to prepared rows instead would skip conversion for the new ones, and the
+    # "auto" sign decision would see only them.
+    @property
+    def rows(self) -> List[Expense]:
+        """The rows as loaded, or once prepared, resolved, converted and filtered."""
+        return self._rows
+
+    @rows.setter
+    def rows(self, rows: Optional[Iterable[Expense]]) -> None:
+        """Replace the rows as loaded; they are prepared again before the next draw."""
+        self._source = list(rows or [])
+        self._rows = self._source       # one list until prepared, so rows added in place count
+        self._prepared = False
+        self._last_graph = None
+
     def set_rows(self, rows: Optional[Iterable[Any]]) -> Calculator:
         """Replace the current rows. Anything dict-like or tuple-like is accepted."""
         self.rows = coerce_rows(rows, self.currency)
-        self._last_graph = None
         return self
 
     def append_rows(self, rows: Optional[Iterable[Any]]) -> Calculator:
         """Add more rows to the ones already loaded."""
-        if getattr(self, "rows", None) is None:
+        if getattr(self, "_source", None) is None:
             return self.set_rows(rows)
-        self.rows = self.rows + coerce_rows(rows, self.currency)
-        self._last_graph = None
+        self.rows = self._source + coerce_rows(rows, self.currency)
         return self
 
     def insert_row(self, row: Any) -> Calculator:
@@ -273,10 +289,14 @@ class Calculator(CalculatorBase):
                  period: Optional[str] = None, verbose: Optional[bool] = None) -> Calculator:
         """Resolve directions, convert currencies and apply the period filter.
 
+        Always starts from the rows as loaded, so running it again (with another
+        period, or after rows were added) never works on already-prepared rows.
         Mutates the calculator in place and returns it, so it can be chained.
         """
         verbose = self.verbose if verbose is None else verbose
-        rows = apply_sign_convention(self.rows, sign)
+        if self.subtitle and self.subtitle == getattr(self, "_made_subtitle", ""):
+            self.subtitle = ""          # made from the rows of last time; make it again
+        rows = apply_sign_convention(self._source, sign)
         if verbose:
             foreign = [c for c in currencies_used(rows) if c != self.currency]
             if foreign:
@@ -306,9 +326,9 @@ class Calculator(CalculatorBase):
                 )
             rows = kept
             if not self.subtitle:
-                self.subtitle = period_label(start, end)
+                self.subtitle = self._made_subtitle = period_label(start, end)
 
-        self.rows = rows
+        self._rows = rows               # not `self.rows =`: that replaces the source
         self._last_graph = None
         return self
 

@@ -186,6 +186,21 @@ class TestCalculator:
         calc._prepare(period="2026-08-01..2026-08-04")
         assert len(calc.rows) == 4
 
+    def test_preparing_again_starts_from_the_rows_as_loaded(self, rows):
+        calc = Calculator(rows, currency="PLN")
+        calc._prepare(period="2026-08-01..2026-08-04")
+        calc._prepare(period="2026-08")              # wider: nothing was lost
+        assert len(calc.rows) == len(rows)
+        assert calc.subtitle == "August 2026"
+
+    def test_rows_added_after_preparing_wait_to_be_prepared(self, rows):
+        calc = Calculator(rows, currency="PLN")
+        calc._prepare(period="2026-08-01..2026-08-04")
+        calc.append_rows([{"category": "Fuel", "amount": "-20", "date": "2026-08-03"}])
+        assert len(calc.rows) == len(rows) + 1       # every row as loaded
+        calc._prepare(period="2026-08-01..2026-08-04")
+        assert len(calc.rows) == 5
+
     def test_date_range(self, rows):
         calc = Calculator(rows, currency="PLN")
         assert calc.date_range() == (_dt.date(2026, 8, 1), _dt.date(2026, 8, 20))
