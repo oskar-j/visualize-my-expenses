@@ -88,6 +88,106 @@ class TestGraph:
         assert v.subtitle == "August 2026"
 
 
+def statement():
+    """A bank statement: money out is negative, so the sign gives the direction."""
+    return Visualizer([
+        {"category": "Food", "label": "Lidl", "amount": "-50", "date": "2026-08-02"},
+        {"category": "Pay", "label": "Job", "amount": "1000", "date": "2026-08-01"},
+    ], currency="USD")
+
+
+class TestRowsChangedAfterDrawing:
+    """Rows set, added or inserted after a first draw used to skip preparation."""
+
+    def test_appended_rows_are_drawn(self, tmp_path):
+        v = statement()
+        v.create_png(str(tmp_path / "a.png"))
+        v.append_rows([{"category": "Rent", "label": "Flat", "amount": "-400",
+                        "date": "2026-08-03"}])
+        v.create_png(str(tmp_path / "b.png"))
+        assert v.graph().node("cat:Rent").value == Decimal("400")
+        assert v.totals()["spent"] == Decimal("450")
+        assert "3 transactions" in v.footer()
+
+    def test_an_inserted_row_is_drawn(self):
+        v = statement()
+        v.graph()
+        v.insert_row({"category": "Rent", "label": "Flat", "amount": "-400"})
+        assert v.graph().node("cat:Rent").value == Decimal("400")
+
+    def test_a_refund_added_to_a_statement_is_money_in(self):
+        # The sign convention is decided over every row, not only the new one:
+        # alone, a positive amount would be read as spending.
+        v = statement()
+        v.graph()
+        v.insert_row({"category": "Food", "label": "Refund", "amount": "20"})
+        v.graph()
+        assert {r.label: r.kind for r in v.rows}["Refund"] == "income"
+
+    def test_added_rows_in_another_currency_are_converted(self):
+        v = Visualizer([{"category": "Food", "amount": 100, "currency": "PLN"}],
+                       currency="PLN", rates={"EUR": 4})
+        v.graph()
+        v.append_rows([{"category": "Fuel", "amount": 10, "currency": "EUR"}])
+        assert v.graph().node("cat:Fuel").value == Decimal("40")
+        assert {row.currency for row in v.rows} == {"PLN"}
+
+    def test_replaced_rows_are_converted_or_refused(self):
+        # A 70 EUR row in a USD report used to be summed as "Spent $70".
+        v = Visualizer([{"category": "Food", "amount": 10}], currency="USD")
+        v.prepare()
+        v.set_rows([{"category": "Food", "amount": 70, "currency": "EUR"}])
+        with pytest.raises(CurrencyError, match="EUR"):
+            v.footer()
+        v.rates = {"EUR": 2}
+        assert "Spent $140" in v.footer()
+
+    def test_rows_assigned_directly_are_prepared_too(self):
+        v = statement()
+        v.graph()
+        v.rows = list(statement().rows)[:1]          # as loaded: still undecided
+        assert v.graph().node("cat:Food").value == Decimal("50")
+
+    def test_rows_added_to_the_list_before_drawing_are_drawn(self):
+        v = statement()
+        v.rows.append(statement().rows[0].replace(category="Rent", amount=-400))
+        assert v.graph().node("cat:Rent").value == Decimal("400")
+
+    def test_the_period_still_filters_added_rows(self):
+        v = statement()
+        v.period = "2026-08"
+        v.graph()
+        v.append_rows([{"category": "Rent", "label": "Flat", "amount": "-400",
+                        "date": "2026-09-03"},
+                       {"category": "Fuel", "label": "Orlen", "amount": "-30",
+                        "date": "2026-08-20"}])
+        graph = v.graph()
+        assert graph.node("cat:Rent") is None
+        assert graph.node("cat:Fuel").value == Decimal("30")
+
+    def test_the_date_subtitle_follows_the_rows(self):
+        v = statement()
+        v.graph()
+        assert v.subtitle == "2026-08-01 – 2026-08-02"
+        v.append_rows([{"category": "Rent", "label": "Flat", "amount": "-400",
+                        "date": "2026-09-03"}])
+        v.graph()
+        assert v.subtitle == "2026-08-01 – 2026-09-03"
+
+    def test_a_subtitle_of_your_own_is_kept(self):
+        v = statement()
+        v.subtitle = "Holiday"
+        v.graph()
+        v.append_rows([{"category": "Rent", "amount": "-400", "date": "2026-09-03"}])
+        v.graph()
+        assert v.subtitle == "Holiday"
+
+    def test_totals_before_drawing_are_prepared(self):
+        # Read raw, the 1000 of income counted as spending: "spent 950".
+        totals = statement().totals()
+        assert (totals["income"], totals["spent"]) == (Decimal("1000"), Decimal("50"))
+
+
 class TestFooterAndConsole:
     def test_footer_reports_converted_totals(self):
         rows = [{"category": "Income", "label": "Pay", "amount": 100,

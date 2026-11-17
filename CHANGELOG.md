@@ -10,6 +10,27 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.2.3]
+
+Rows added to a `Visualizer` after it has drawn a chart are now drawn too.
+
+### Fixed
+
+- **Rows set, added or inserted after a chart was drawn go through the same
+  steps as the first ones** (#8). `set_rows`, `append_rows` and `insert_row`
+  changed the rows, but vme still took them as already prepared, so new rows
+  skipped the sign convention, currency conversion and the period filter. The
+  next chart failed with "Data has bad structure", and after `set_rows` the
+  footer summed 70 EUR as "Spent $70". vme now keeps the rows as loaded and
+  prepares all of them again after any change, so the `auto` sign convention
+  still sees the whole file: a refund added to a bank statement is money in.
+- **The date subtitle follows the rows.** A subtitle vme wrote from the dates
+  or the period is written again when the rows change, so a chart redrawn
+  with September rows no longer says August. A subtitle you set is kept.
+- **`Visualizer.totals()` prepares the rows first,** as `footer()` already
+  did. Called before anything was drawn, it summed the raw amounts, so the
+  income in a bank statement counted as spending.
+
 ## [0.2.2]
 
 A row built by hand in Python is now read the way a row from a file is.
@@ -291,6 +312,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.2.3]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.3
 [0.2.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.2
 [0.2.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.1
 [0.2.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.0

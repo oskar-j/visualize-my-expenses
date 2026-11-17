@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 447 tests, ~9s
+uv run pytest                            # 460 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -72,6 +72,11 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
   coerces row by row brings back files with both orders mixed. Loaders also pass every row to
   `warn_unread_dates`, so a date that cannot be read is a `LoaderWarning` (a `note:` in the CLI)
   rather than a row that silently drops out of `--month`.
+- **Rows are kept twice: as loaded (`_source`) and as they now stand (`rows`).** `_prepare` always
+  starts from `_source`; assigning `rows` (as `set_rows` and `append_rows` do) replaces `_source`
+  and clears `_prepared`, while `_prepare` writes `_rows`. Preparing already-prepared rows again
+  would let the `auto` sign decision see only the new ones. A subtitle vme wrote itself
+  (`_made_subtitle`) is rewritten on every prepare; one the caller set is kept.
 - **Constructing `Expense` directly defaults to `EXPENSE`,** not `AUTO`. Income must say `kind="income"`
   (any case). Any other word raises `ValueError` — it used to become an expense silently.
   `Expense` also runs its currency through `normalise_code`, as the loaders do, so `"€"` is `"EUR"`.

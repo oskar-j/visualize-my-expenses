@@ -7,7 +7,8 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Iterable, Mapping, Optional
+from decimal import Decimal
+from typing import Any, Dict, Iterable, Mapping, Optional
 
 from .currencies import format_money, load_rates
 from .data_store import Calculator
@@ -81,7 +82,6 @@ class Visualizer(Calculator):
             hub_label=kwargs.pop("hub_label", None),
         )
         self.render_options = kwargs
-        self._prepared = False
 
     # ------------------------------------------------------------ construction
     @classmethod
@@ -102,7 +102,11 @@ class Visualizer(Calculator):
 
     # -------------------------------------------------------------- pipeline
     def prepare(self, force: bool = False) -> Visualizer:
-        """Resolve directions, convert currencies, apply the period filter (idempotent)."""
+        """Resolve directions, convert currencies, apply the period filter.
+
+        Runs once, and again after rows are set, added or inserted -- always
+        over every row as loaded.
+        """
         if self._prepared and not force:
             return self
         self._prepare(sign=self.sign, rates=self.rates, period=self.period)
@@ -112,7 +116,7 @@ class Visualizer(Calculator):
         if not self.subtitle:
             span = self.date_range()
             if span:
-                self.subtitle = period_label(*span)
+                self.subtitle = self._made_subtitle = period_label(*span)
         return self
 
     def style(self) -> Style:
@@ -142,6 +146,11 @@ class Visualizer(Calculator):
         found = self.problems()
         listed = "\n".join(f"  - {problem}" for problem in found)
         return ("Data has bad structure - are some of your elements loose?\n" + listed)
+
+    def totals(self) -> Dict[str, Decimal]:
+        """Income, spending and what is left, from the prepared rows."""
+        self.prepare()
+        return super().totals()
 
     def footer(self) -> str:
         """The one-line summary printed under the plot."""
