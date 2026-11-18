@@ -8,12 +8,13 @@ from __future__ import annotations
 
 import os
 from decimal import Decimal
-from typing import Any, Dict, Iterable, Mapping, Optional
+from typing import Any, Dict, Iterable, Mapping, Optional, Sequence, Union
 
 from .currencies import format_money, load_rates
 from .data_store import Calculator
 from .engines import Style, get_style
 from .models import SankeyGraph
+from .rules import RuleReport, load_rules
 from .sankey import GraphOptions
 from .theme import Theme
 from .tools import period_label
@@ -34,6 +35,17 @@ def _as_rates(rates: Any, target: str) -> dict:
         f"not {type(rates).__name__}"
     )
 
+
+def title_for(paths: Sequence[Union[str, os.PathLike[str]]]) -> str:
+    """A heading from file names: ``["checking.ofx", "credit-card.csv"]`` ->
+    ``"Checking + Credit Card"``."""
+    return " + ".join(
+        os.path.splitext(os.path.basename(os.fspath(path)))[0]
+        .replace("_", " ").replace("-", " ").strip().title()
+        for path in paths
+    )
+
+
 IMAGE_SUFFIXES = (".png", ".svg", ".pdf", ".jpg", ".jpeg", ".webp", ".eps")
 HTML_SUFFIXES = (".html", ".htm")
 
@@ -52,6 +64,9 @@ class Visualizer(Calculator):
     :param palette: a seaborn palette name, such as ``"colorblind"``; seaborn engine only.
     :param context: ``"paper"``, ``"notebook"``, ``"talk"`` or ``"poster"``; seaborn
         engine only.
+    :param rules: categorisation rules: the path to a CSV or JSON rules file, a
+        mapping such as ``{"lidl": "Groceries"}``, or a list of rules (see
+        :mod:`vme.rules`). They run before anything else, on every row.
     """
 
     def __init__(self, rows: Optional[Iterable[Any]] = None, currency: str = "USD",
@@ -59,7 +74,7 @@ class Visualizer(Calculator):
                  sign: str = "auto", rates: Optional[Any] = None,
                  period: Optional[str] = None, engine: str = "matplotlib",
                  palette: Optional[str] = None, context: Optional[str] = None,
-                 **kwargs: Any):
+                 rules: Optional[Any] = None, **kwargs: Any):
         super().__init__(rows=rows, currency=currency,
                          verbose=bool(kwargs.pop("verbose", False)))
         self.title = title
@@ -71,6 +86,7 @@ class Visualizer(Calculator):
         self.style()  # an unknown engine or palette, or a missing seaborn, fails here
         self.sign = sign
         self.rates = _as_rates(rates, self.currency)
+        self.rules = load_rules(rules)  # a bad rules file fails here, before any drawing
         self.period = period
         self.options = GraphOptions(
             detail=kwargs.pop("detail", True),
@@ -89,16 +105,46 @@ class Visualizer(Calculator):
                   loader_options: Optional[Mapping[str, Any]] = None,
                   **kwargs: Any) -> Visualizer:
         """Read ``path`` (any supported format) and return a ready visualizer."""
+        return cls.from_files([path], fmt=fmt, currency=currency,
+                              loader_options=loader_options, **kwargs)
+
+    @classmethod
+    def from_files(cls, paths: Iterable[Union[str, os.PathLike[str]]],
+                   fmt: Optional[str] = None, currency: str = "USD",
+                   loader_options: Optional[Mapping[str, Any]] = None,
+                   **kwargs: Any) -> Visualizer:
+        """Read several files into one chart: a current account and a card, say.
+
+        Every file is read with the same ``fmt`` and ``loader_options``, and
+        decides its own sign convention. Use a ``skip`` rule for the transfers
+        between the accounts, or they count twice.
+        """
+        if isinstance(paths, (str, os.PathLike)):
+            paths = [paths]
+        paths = list(paths)
+        if not paths:
+            raise ValueError("no files to read")
+        visualizer = cls(currency=currency, **kwargs)
+        for path in paths:
+            visualizer.add_file(path, fmt=fmt, **dict(loader_options or {}))
+        if not visualizer.title:
+            visualizer.title = title_for(paths)
+        return visualizer
+
+    def add_file(self, path: Union[str, os.PathLike[str]], fmt: Optional[str] = None,
+                 **loader_options: Any) -> Visualizer:
+        """Add the rows of one more file.
+
+        Its sign convention is decided on its own rows, so a bank statement
+        (negative = money out) and a plain list of expenses can be drawn
+        together.
+        """
         from .io import load
 
-        options = dict(loader_options or {})
-        options.setdefault("default_currency", currency)
-        rows = load(str(path), fmt, **options)
-        visualizer = cls(rows=rows, currency=currency, **kwargs)
-        if not visualizer.title:
-            visualizer.title = os.path.splitext(os.path.basename(str(path)))[0] \
-                .replace("_", " ").replace("-", " ").strip().title()
-        return visualizer
+        options = dict(loader_options)
+        options.setdefault("default_currency", self.currency)
+        self._append_file(load(os.fspath(path), fmt, **options))
+        return self
 
     # -------------------------------------------------------------- pipeline
     def prepare(self, force: bool = False) -> Visualizer:
@@ -109,7 +155,7 @@ class Visualizer(Calculator):
         """
         if self._prepared and not force:
             return self
-        self._prepare(sign=self.sign, rates=self.rates, period=self.period)
+        self._prepare(sign=self.sign, rates=self.rates, period=self.period, rules=self.rules)
         self._prepared = True
         if not self.title:
             self.title = "Where the money went"
@@ -146,6 +192,12 @@ class Visualizer(Calculator):
         found = self.problems()
         listed = "\n".join(f"  - {problem}" for problem in found)
         return ("Data has bad structure - are some of your elements loose?\n" + listed)
+
+    def rule_report(self) -> RuleReport:
+        """What the rules did: rows categorised and skipped, and the rest."""
+        self.prepare()
+        assert self._rule_report is not None
+        return self._rule_report
 
     def totals(self) -> Dict[str, Decimal]:
         """Income, spending and what is left, from the prepared rows."""

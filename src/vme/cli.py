@@ -2,6 +2,8 @@
 
     vme render august.csv -o august.png --month 2026-08
     vme summary statement.ofx
+    vme uncategorized statement.csv --write rules.csv
+    vme render checking.ofx card.csv --rules rules.csv
     vme formats
 """
 
@@ -10,7 +12,8 @@ from __future__ import annotations
 import os
 import sys
 import warnings
-from typing import Any, Dict, Optional, Tuple
+from decimal import Decimal
+from typing import Any, Dict, List, Optional, Tuple
 
 import click
 
@@ -19,15 +22,18 @@ from .currencies import CURRENCIES, RateError, load_rates
 from .data_store import SIGN_CONVENTIONS, CurrencyError
 from .engines import CONTEXTS, ENGINES, get_style
 from .io import FORMATS, LoaderError, LoaderWarning, describe_formats
+from .models import INCOME
 from .plotting import RenderWarning
+from .rules import RuleReport, RulesError, suggest, write_rules
 from .theme import THEMES
-from .visualizer import HTML_SUFFIXES, IMAGE_SUFFIXES, Visualizer
+from .tools import format_money, shorten
+from .visualizer import HTML_SUFFIXES, IMAGE_SUFFIXES, Visualizer, title_for
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"], max_content_width=100)
 
 #: The options of every command that reads a file. Defined once, so render,
-#: summary and check cannot drift apart: a hint that one of them prints, such
-#: as "--rate EUR=4.30", works on all three.
+#: summary, check and uncategorized cannot drift apart: a hint that one of them
+#: prints, such as "--rate EUR=4.30", works on all of them.
 INPUT_OPTIONS = (
     click.option("-f", "--format", "fmt", type=click.Choice(sorted(FORMATS)),
                  help="Input format. Guessed from the file name when omitted."),
@@ -39,6 +45,10 @@ INPUT_OPTIONS = (
     click.option("--rates", "rates_file", metavar="FILE",
                  type=click.Path(exists=True, dir_okay=False, readable=True),
                  help="JSON or CSV file of conversion rates. --rate flags override it."),
+    click.option("--rules", metavar="FILE",
+                 type=click.Path(exists=True, dir_okay=False, readable=True),
+                 help="CSV or JSON rules giving payees a category, one per line, such as "
+                      "'lidl,Groceries,Lidl'. Start one with: vme uncategorized --write FILE"),
     click.option("-m", "--month", metavar="YYYY-MM", help="Only this month."),
     click.option("-y", "--year", metavar="YYYY", help="Only this year."),
     click.option("-p", "--period", metavar="START..END", help="Only this date range."),
@@ -111,6 +121,11 @@ def main(ctx: click.Context) -> None:
       vme sample budget.csv            write an example file to start from
       vme render budget.csv            draw expenses.png
       vme render budget.csv -o may.png --month 2026-05
+
+    \b
+    A bank statement, sorted into categories by your own rules:
+      vme uncategorized statement.csv --write rules.csv
+      vme render statement.csv --rules rules.csv
     """
     if ctx.invoked_subcommand is None:
         click.echo(ctx.get_help())
@@ -120,7 +135,8 @@ def main(ctx: click.Context) -> None:
 
 
 @main.command()
-@click.argument("source", type=click.Path(exists=True, dir_okay=False, readable=True))
+@click.argument("sources", nargs=-1, required=True, metavar="SOURCE...",
+                type=click.Path(exists=True, dir_okay=False, readable=True))
 @click.option("-o", "--output", default="expenses.png", show_default=True,
               type=click.Path(dir_okay=False, writable=True),
               help="Where to write the picture (.png, .svg, .pdf, or .html).")
@@ -156,18 +172,19 @@ def main(ctx: click.Context) -> None:
 @click.option("--open", "open_after", is_flag=True, help="Open the result when done.")
 @click.option("-q", "--quiet", is_flag=True, help="Only print the output path.")
 @click.option("-v", "--verbose", is_flag=True, help="Explain what is being filtered out.")
-def render(source: str, output: str, title: str, subtitle: str, theme: str, engine: str,
-           palette: Optional[str], context: Optional[str], top_categories: Optional[int],
-           max_labels: int, min_share: float, no_detail: bool, no_savings: bool,
-           group_income: bool, width: int, height: Optional[int], dpi: int,
-           transparent: bool, no_percent: bool, open_after: bool, quiet: bool,
-           verbose: bool, **inputs: Any) -> None:
-    """Draw SOURCE as a Sankey diagram.
+def render(sources: Tuple[str, ...], output: str, title: str, subtitle: str, theme: str,
+           engine: str, palette: Optional[str], context: Optional[str],
+           top_categories: Optional[int], max_labels: int, min_share: float,
+           no_detail: bool, no_savings: bool, group_income: bool, width: int,
+           height: Optional[int], dpi: int, transparent: bool, no_percent: bool,
+           open_after: bool, quiet: bool, verbose: bool, **inputs: Any) -> None:
+    """Draw SOURCE as a Sankey diagram; several files draw as one.
 
     \b
     Examples:
       vme render budget.csv -o august.png --month 2026-08
       vme render statement.ofx -c EUR --top 8 --theme dark
+      vme render checking.ofx card.csv --rules rules.csv
       vme render trip.csv -c PLN --rate EUR=4.30 --rate UAH=0.095
       vme render expenses.json -o report.html
       vme render budget.csv --engine seaborn --palette colorblind --context talk
@@ -183,7 +200,7 @@ def render(source: str, output: str, title: str, subtitle: str, theme: str, engi
         _fail(str(exc))
 
     visualizer = _read(
-        source, inputs, title=title, subtitle=subtitle, theme=theme,
+        sources, inputs, title=title, subtitle=subtitle, theme=theme,
         engine=engine, palette=palette, context=context,
         verbose=verbose, detail=not no_detail, top_categories=top_categories,
         max_labels=max_labels, min_share=min_share, show_savings=not no_savings,
@@ -214,6 +231,9 @@ def render(source: str, output: str, title: str, subtitle: str, theme: str, engi
         click.secho(f"✓ {written}", fg="green", bold=True)
         click.echo(_totals_line(visualizer.totals(), visualizer.currency,
                                 len(visualizer.rows)))
+        report = visualizer.rule_report()
+        if len(report.rules):
+            click.echo(f"{report.rules.name}: {report.summary()}")
 
     if open_after:
         _open(written)
@@ -223,12 +243,13 @@ def render(source: str, output: str, title: str, subtitle: str, theme: str, engi
 
 
 @main.command()
-@click.argument("source", type=click.Path(exists=True, dir_okay=False, readable=True))
+@click.argument("sources", nargs=-1, required=True, metavar="SOURCE...",
+                type=click.Path(exists=True, dir_okay=False, readable=True))
 @input_options
 @click.option("-v", "--verbose", is_flag=True, help="Explain what is being filtered out.")
-def summary(source: str, verbose: bool, **inputs: Any) -> None:
+def summary(sources: Tuple[str, ...], verbose: bool, **inputs: Any) -> None:
     """Print the breakdown as a table, without drawing anything."""
-    visualizer = _read(source, inputs, verbose=verbose)
+    visualizer = _read(sources, inputs, verbose=verbose)
     try:
         visualizer.print_to_console()
     except (ValueError, CurrencyError) as exc:
@@ -236,19 +257,22 @@ def summary(source: str, verbose: bool, **inputs: Any) -> None:
 
 
 @main.command()
-@click.argument("source", type=click.Path(exists=True, dir_okay=False, readable=True))
+@click.argument("sources", nargs=-1, required=True, metavar="SOURCE...",
+                type=click.Path(exists=True, dir_okay=False, readable=True))
 @input_options
-def check(source: str, **inputs: Any) -> None:
+def check(sources: Tuple[str, ...], **inputs: Any) -> None:
     """Read SOURCE and report anything that would stop it being plotted.
 
     It reads the file with the same options as render, so a file that passes
-    here draws there.
+    here draws there. With --rules, it also says what the rules did.
     """
-    visualizer = _read(source, inputs)
+    visualizer = _read(sources, inputs)
     try:
         visualizer.prepare()
     except (ValueError, CurrencyError) as exc:
         _fail(str(exc))
+    report = visualizer.rule_report()
+    _rule_notes(report)
     problems = visualizer.problems()
     if not problems:
         click.secho(f"✓ {len(visualizer.rows)} rows look fine", fg="green", bold=True)
@@ -257,11 +281,89 @@ def check(source: str, **inputs: Any) -> None:
             click.echo(f"  dates {span[0].isoformat()} .. {span[1].isoformat()}")
         click.echo("  " + _totals_line(visualizer.totals(), visualizer.currency,
                                        len(visualizer.rows)))
+        if len(report.rules):
+            click.echo(f"  {report.rules.name}: {report.summary()}")
         return
     click.secho(f"✗ {len(problems)} problem(s)", fg="red", bold=True)
     for problem in problems:
         click.echo(f"  - {problem}")
     raise SystemExit(1)
+
+
+@main.command()
+@click.argument("sources", nargs=-1, required=True, metavar="SOURCE...",
+                type=click.Path(exists=True, dir_okay=False, readable=True))
+@input_options
+@click.option("--top", type=click.IntRange(1, 10_000), default=20, show_default=True,
+              metavar="N", help="List the N biggest payees.")
+@click.option("--write", "write_to", metavar="FILE",
+              type=click.Path(dir_okay=False, writable=True),
+              help="Add a rule for each payee listed to FILE (created if missing), with "
+                   "the category left for you to fill in.")
+def uncategorized(sources: Tuple[str, ...], top: int, write_to: Optional[str],
+                  **inputs: Any) -> None:
+    """List the payees no rule covers yet, biggest first.
+
+    Rows are grouped by the words that name their payee, so a dozen card
+    payments at one shop are one line. Totals are in --currency, for the
+    period asked for.
+
+    \b
+    Start a rules file, fill in its category column, then draw:
+      vme uncategorized statement.csv -c PLN --write rules.csv
+      vme render statement.csv -c PLN --rules rules.csv
+    Run it again with --rules rules.csv --write rules.csv to add what is left.
+    """
+    visualizer = _read(sources, inputs)
+    try:
+        report = visualizer.rule_report()
+    except (ValueError, CurrencyError) as exc:
+        _fail(str(exc))
+    _rule_notes(report, unused=False)
+    if len(report.rules):
+        click.echo(f"{report.rules.name}: {report.summary()}")
+
+    groups = suggest(report.unmatched, among=visualizer.source_rows)
+    if not groups:
+        click.secho("✓ every row matches a rule", fg="green", bold=True)
+        return
+
+    currency = visualizer.currency
+    flows = {"out": Decimal("0"), "in": Decimal("0")}
+    for row in report.unmatched:
+        flows["in" if row.kind == INCOME else "out"] += row.amount
+    amounts = ", ".join(f"{format_money(value, currency, 0)} {flow}"
+                        for flow, value in flows.items() if value)
+    count = len(report.unmatched)
+    click.secho(f"{_rows(count)} match{'es' if count == 1 else ''} no rule ({amounts}):",
+                bold=True)
+    shown = groups[:top]
+    width = min(max(len(group.match) for group in shown), 44)
+    for group in shown:
+        money = ("+" if group.is_income else "") + format_money(group.total, currency, 0)
+        click.echo(f"  {shorten(group.match or '(no description)', width):<{width}}  "
+                   f"{_rows(len(group.rows)):>9}  {money:>14}")
+    if len(groups) > top:
+        click.echo(f"  ... and {len(groups) - top} more (--top {len(groups)} lists them all)")
+    if any(group.is_income for group in shown):
+        click.echo("  (+ is money in)")
+    click.echo()
+
+    if not write_to:
+        click.echo("Add them to a rules file, ready to fill in:  --write rules.csv")
+        return
+    try:
+        added = write_rules(write_to, shown, currency)
+    except RulesError as exc:
+        _fail(str(exc))
+    if not added:
+        click.echo(f"{write_to} already has a rule for each of these; "
+                   "fill in their category column")
+        return
+    click.secho(f"✓ added {added} rule{'' if added == 1 else 's'} to {write_to}",
+                fg="green", bold=True)
+    click.echo("  fill in their category column (skip drops a row), then draw with "
+               f"--rules {write_to}")
 
 
 @main.command()
@@ -337,30 +439,37 @@ def sample(destination: str, kind: str, force: bool) -> None:
 # --------------------------------------------------------------------------- #
 
 
-def _read(source: str, inputs: Dict[str, Any], **kwargs: Any) -> Visualizer:
-    """Read SOURCE as :data:`INPUT_OPTIONS` say; ``kwargs`` go to the Visualizer."""
+def _read(sources: Tuple[str, ...], inputs: Dict[str, Any], **kwargs: Any) -> Visualizer:
+    """Read SOURCE... as :data:`INPUT_OPTIONS` say; ``kwargs`` go to the Visualizer."""
     loader_options = {key: inputs[key] for key in ("sheet", "encoding", "delimiter", "dayfirst")
                       if inputs[key] is not None}
     currency = inputs["currency"]
-    return _build(source, inputs["fmt"], currency, loader_options, dict(
+    return _build(list(sources), inputs["fmt"], currency, loader_options, dict(
         sign=inputs["sign"],
         rates=_parse_rates(inputs["rates"], inputs["rates_file"], currency),
         period=_period(inputs["month"], inputs["year"], inputs["period"]),
+        rules=inputs["rules"],
         **kwargs,
     ))
 
 
-def _build(source: str, fmt: Optional[str], currency: str,
+def _build(sources: List[str], fmt: Optional[str], currency: str,
            loader_options: Dict[str, Any], kwargs: Dict[str, Any]) -> Visualizer:
+    try:
+        visualizer = Visualizer(currency=currency, **kwargs)
+    except (ValueError, ImportError) as exc:    # a rules file vme cannot use, say
+        _fail(str(exc))
     with warnings.catch_warnings(record=True) as raised:
         warnings.simplefilter("always", LoaderWarning)
-        try:
-            visualizer = Visualizer.from_file(source, fmt=fmt, currency=currency,
-                                              loader_options=loader_options, **kwargs)
-        except LoaderError as exc:
-            _fail(str(exc))
-        except (ValueError, TypeError) as exc:
-            _fail(f"{source}: {exc}")
+        for source in sources:  # one at a time, so an error names its file
+            try:
+                visualizer.add_file(source, fmt=fmt, **loader_options)
+            except LoaderError as exc:
+                _fail(str(exc))
+            except (ValueError, TypeError) as exc:
+                _fail(f"{source}: {exc}")
+    if not visualizer.title:
+        visualizer.title = title_for(sources)
     for warning in raised:
         if issubclass(warning.category, LoaderWarning):
             click.secho(f"note: {warning.message}", fg="yellow", err=True)
@@ -370,9 +479,25 @@ def _build(source: str, fmt: Optional[str], currency: str,
     return visualizer
 
 
-def _totals_line(totals: Dict[str, Any], currency: str, count: int) -> str:
-    from .tools import format_money
+def _rows(count: int) -> str:
+    return f"{count} row{'' if count == 1 else 's'}"
 
+
+def _rule_notes(report: RuleReport, unused: bool = True) -> None:
+    """Notes about rules that do nothing: no category yet, or nothing matched."""
+    waiting = report.rules.incomplete
+    if waiting:
+        click.secho(f"note: {report.rules.name}: {len(waiting)} rule"
+                    f"{' has' if len(waiting) == 1 else 's have'} no category yet, "
+                    "so they do nothing", fg="yellow", err=True)
+    if unused and report.unused:
+        named = ", ".join(f"{rule.match!r}" for rule in report.unused[:5])
+        more = f" and {len(report.unused) - 5} more" if len(report.unused) > 5 else ""
+        click.secho(f"note: {report.rules.name}: no row matches {named}{more}",
+                    fg="yellow", err=True)
+
+
+def _totals_line(totals: Dict[str, Any], currency: str, count: int) -> str:
     parts = []
     if totals["income"]:
         parts.append(f"income {format_money(totals['income'], currency, 0)}")

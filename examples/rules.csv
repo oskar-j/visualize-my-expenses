@@ -1,0 +1,22 @@
+match,category,label,comment
+acme,Income,Salary,
+jan kowalski,Income,Freelance,
+standing order rent,Housing,Rent,
+pge,Housing,Electricity,
+upc polska,Housing,Internet,
+biedronka,Groceries,Biedronka,
+lidl,Groceries,Lidl,
+żabka,Groceries,Żabka,the statement says ZABKA: case and accents do not matter
+orlen|shell,Transport,Fuel,| separates alternatives
+jakdojade,Transport,Public transport,
+bolt.eu,Transport,Taxi,
+pizzeria,Eating out,Pizzeria Napoli,
+starbucks,Eating out,Starbucks,
+pyszne.pl,Eating out,Food delivery,
+netflix,Subscriptions,Netflix,
+spotify,Subscriptions,Spotify,
+apteka,Health,Pharmacy,
+allegro,Shopping,Allegro,
+atm withdrawal,Cash,ATM,
+own account savings,skip,,money moved to my own savings is not spending
+credit card repayment,skip,,the card's own statement has what was bought

@@ -11,10 +11,12 @@ import datetime as _dt
 import sys
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
-from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
+from itertools import pairwise
+from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Set, Tuple
 
 from .currencies import RateError, get_currency, load_rates, normalise_code
 from .models import AUTO, EXPENSE, INCOME, Expense
+from .rules import Rule, RuleReport, load_rules
 from .sankey import GraphOptions, build_graph, summarise
 from .tools import (
     coerce_rows,
@@ -250,7 +252,8 @@ class Calculator(CalculatorBase):
     # Two lists: the rows as loaded (`_source`) and the rows as they now stand
     # (`rows`), which `_prepare` derives from the loaded ones every time. Adding
     # to prepared rows instead would skip conversion for the new ones, and the
-    # "auto" sign decision would see only them.
+    # "auto" sign decision would see only them. `_starts` marks where each
+    # file's rows begin in `_source`: each file decides its own sign convention.
     @property
     def rows(self) -> List[Expense]:
         """The rows as loaded, or once prepared, resolved, converted and filtered."""
@@ -259,10 +262,20 @@ class Calculator(CalculatorBase):
     @rows.setter
     def rows(self, rows: Optional[Iterable[Expense]]) -> None:
         """Replace the rows as loaded; they are prepared again before the next draw."""
-        self._source = list(rows or [])
-        self._rows = self._source       # one list until prepared, so rows added in place count
+        self._replace_source(list(rows or []), [0])
+
+    @property
+    def source_rows(self) -> List[Expense]:
+        """The rows as loaded, before rules, sign convention, conversion and period."""
+        return list(getattr(self, "_source", None) or [])
+
+    def _replace_source(self, rows: List[Expense], starts: List[int]) -> None:
+        self._source = rows
+        self._rows = rows               # one list until prepared, so rows added in place count
+        self._starts = starts
         self._prepared = False
         self._last_graph = None
+        self._rule_report: Optional[RuleReport] = None
 
     def set_rows(self, rows: Optional[Iterable[Any]]) -> Calculator:
         """Replace the current rows. Anything dict-like or tuple-like is accepted."""
@@ -273,8 +286,22 @@ class Calculator(CalculatorBase):
         """Add more rows to the ones already loaded."""
         if getattr(self, "_source", None) is None:
             return self.set_rows(rows)
-        self.rows = self._source + coerce_rows(rows, self.currency)
+        self._replace_source(self._source + coerce_rows(rows, self.currency),
+                             list(self._starts))
         return self
+
+    def _append_file(self, rows: Iterable[Any]) -> Calculator:
+        """Add the rows of another file, which decides its own sign convention."""
+        rows = coerce_rows(rows, self.currency)
+        if not getattr(self, "_source", None):
+            return self.set_rows(rows)
+        self._replace_source(self._source + rows, self._starts + [len(self._source)])
+        return self
+
+    def _files(self) -> List[List[Expense]]:
+        """The rows as loaded, file by file. Rows added since go with the last file."""
+        bounds = getattr(self, "_starts", [0]) + [len(self._source)]
+        return [self._source[start:end] for start, end in pairwise(bounds)]
 
     def insert_row(self, row: Any) -> Calculator:
         """Add a single row."""
@@ -286,17 +313,34 @@ class Calculator(CalculatorBase):
         return currencies_used(self.rows)
 
     def _prepare(self, sign: str = "auto", rates: Optional[Mapping[str, Any]] = None,
-                 period: Optional[str] = None, verbose: Optional[bool] = None) -> Calculator:
-        """Resolve directions, convert currencies and apply the period filter.
+                 period: Optional[str] = None, verbose: Optional[bool] = None,
+                 rules: Any = None) -> Calculator:
+        """Apply the rules, resolve directions, convert currencies, filter the period.
 
         Always starts from the rows as loaded, so running it again (with another
         period, or after rows were added) never works on already-prepared rows.
+        The rules and the sign convention run file by file: a bank statement
+        and a plain expense list each keep their own reading of a sign.
         Mutates the calculator in place and returns it, so it can be chained.
         """
         verbose = self.verbose if verbose is None else verbose
+        rules = load_rules(rules)
         if self.subtitle and self.subtitle == getattr(self, "_made_subtitle", ""):
             self.subtitle = ""          # made from the rows of last time; make it again
-        rows = apply_sign_convention(self._source, sign)
+
+        # `decided_by` runs alongside `rows` -- the rule that decided each one, or
+        # None -- so the report can name the rows no rule matched. Every step
+        # below keeps one row per row, in order, until the period filter.
+        rows: List[Expense] = []
+        decided_by: List[Optional[Rule]] = []
+        skipped: List[Expense] = []
+        used: Set[Rule] = set()
+        for part in self._files():
+            done = rules.categorise(part)
+            rows += apply_sign_convention(done.rows, sign)
+            decided_by += done.rules
+            skipped += done.skipped
+            used |= done.used
         if verbose:
             foreign = [c for c in currencies_used(rows) if c != self.currency]
             if foreign:
@@ -307,12 +351,13 @@ class Calculator(CalculatorBase):
 
         if period:
             start, end = parse_period(period)
-            kept, undated, outside = [], 0, 0
-            for row in rows:
+            kept, kept_by, undated, outside = [], [], 0, 0
+            for row, rule in zip(rows, decided_by, strict=True):
                 if row.date is None:
                     undated += 1
                 elif start <= row.date <= end:
                     kept.append(row)
+                    kept_by.append(rule)
                 else:
                     outside += 1
             if verbose:
@@ -324,12 +369,23 @@ class Calculator(CalculatorBase):
                     f"no rows fall inside {period_label(start, end)}"
                     + (f" ({undated} rows have no date at all)" if undated else "")
                 )
-            rows = kept
+            rows, decided_by = kept, kept_by
+            skipped = [row for row in skipped
+                       if row.date is not None and start <= row.date <= end]
             if not self.subtitle:
                 self.subtitle = self._made_subtitle = period_label(start, end)
 
         self._rows = rows               # not `self.rows =`: that replaces the source
         self._last_graph = None
+        self._rule_report = RuleReport(
+            rules=rules,
+            categorised=sum(rule is not None for rule in decided_by),
+            skipped=len(skipped),
+            unmatched=[row for row, rule in zip(rows, decided_by, strict=True) if rule is None],
+            unused=[rule for rule in rules if rule.complete and rule not in used],
+        )
+        if verbose and len(rules):
+            print(f"vme: {rules.name}: {self._rule_report.summary()}", file=sys.stderr)
         return self
 
     def date_range(self) -> Optional[Tuple[_dt.date, _dt.date]]:

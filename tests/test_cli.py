@@ -56,8 +56,8 @@ class TestHelp:
 
         assert __version__ in run("--version").output
 
-    @pytest.mark.parametrize("command", ["render", "summary", "check", "formats",
-                                         "currencies", "sample"])
+    @pytest.mark.parametrize("command", ["render", "summary", "check", "uncategorized",
+                                         "formats", "currencies", "sample"])
     def test_every_command_has_help(self, run, command):
         result = run(command, "--help")
         assert result.exit_code == 0 and result.output.strip()
@@ -153,10 +153,10 @@ class TestInputOptions:
     def test_every_command_that_reads_a_file_takes_the_same_options(self):
         from vme.cli import INPUT_OPTIONS
 
-        expected = {"fmt", "currency", "rates", "rates_file", "month", "year", "period",
-                    "sign", "sheet", "encoding", "delimiter", "dayfirst"}
+        expected = {"fmt", "currency", "rates", "rates_file", "rules", "month", "year",
+                    "period", "sign", "sheet", "encoding", "delimiter", "dayfirst"}
         assert len(INPUT_OPTIONS) == len(expected)
-        for name in ("render", "summary", "check"):
+        for name in ("render", "summary", "check", "uncategorized"):
             assert expected <= {param.name for param in main.commands[name].params}, name
 
 
@@ -326,3 +326,115 @@ class TestOtherCommands:
         result = run("render", out, "-c", "PLN", "-o", png,
                      "--rate", "EUR=4.30", "--rate", "UAH=0.095", "--rate", "USD=3.95")
         assert result.exit_code == 0 and png.exists()
+
+
+@pytest.fixture
+def statement(tmp_path):
+    path = tmp_path / "statement.csv"
+    path.write_text(
+        "Date,Description,Amount,Currency\n"
+        "2026-09-01,TRANSFER IN ACME SALARY 09/2026,5000,PLN\n"
+        "2026-09-02,CARD PAYMENT 02.09 LIDL SP. Z O.O. 0571,-120,PLN\n"
+        "2026-09-09,CARD PAYMENT 09.09 LIDL SP. Z O.O. 0571,-80,PLN\n"
+        "2026-09-03,CARD PAYMENT 03.09 NETFLIX.COM,-60,PLN\n"
+        "2026-09-10,TRANSFER OUT OWN ACCOUNT SAVINGS,-1000,PLN\n",
+        encoding="utf-8")
+    return path
+
+
+@pytest.fixture
+def rules(tmp_path):
+    path = tmp_path / "rules.csv"
+    path.write_text("match,category,label\n"
+                    "acme,Income,Salary\n"
+                    "lidl,Groceries,Lidl\n"
+                    "own account,skip,\n"
+                    "spotify,Subscriptions,Spotify\n", encoding="utf-8")
+    return path
+
+
+class TestRulesOption:
+    def test_render_says_what_the_rules_did(self, run, statement, rules, tmp_path):
+        result = run("render", statement, "-c", "PLN", "--rules", rules,
+                     "-o", tmp_path / "a.png")
+        assert result.exit_code == 0
+        assert "rules.csv: 3 rows categorised, 1 skipped, 1 matched no rule" in result.output
+        assert "spent 260" in result.output.replace("\u202f", "")
+
+    def test_check_notes_rules_that_do_nothing(self, run, statement, rules):
+        with open(rules, "a", encoding="utf-8") as handle:
+            handle.write("netflx,\n")
+        result = run("check", statement, "-c", "PLN", "--rules", rules)
+        assert result.exit_code == 0
+        assert "1 rule has no category yet" in result.output
+        assert "no row matches 'spotify'" in result.output
+        assert "rules.csv: 3 rows categorised" in result.output
+
+    def test_summary_shows_the_new_categories(self, run, statement, rules):
+        result = run("summary", statement, "-c", "PLN", "--rules", rules)
+        assert result.exit_code == 0 and "Groceries" in result.output
+
+    def test_a_broken_rules_file_names_its_line(self, run, statement, tmp_path):
+        broken = tmp_path / "broken.csv"
+        broken.write_text("match,category\nre:(lidl,Groceries\n", encoding="utf-8")
+        result = run("check", statement, "--rules", broken)
+        assert result.exit_code == 2 and "broken.csv line 2" in result.output
+
+
+class TestUncategorized:
+    def test_lists_payees_biggest_first(self, run, statement):
+        result = run("uncategorized", statement, "-c", "PLN")
+        assert result.exit_code == 0
+        lines = [line.split()[0] for line in result.output.splitlines()
+                 if line.startswith("  ") and "row" in line]
+        assert lines == ["transfer", "transfer", "lidl", "netflix.com"]
+        assert "5 rows match no rule" in result.output and "+ is money in" in result.output
+
+    def test_with_rules_only_the_rest(self, run, statement, rules):
+        result = run("uncategorized", statement, "-c", "PLN", "--rules", rules)
+        assert "1 row matches no rule" in result.output and "netflix.com" in result.output
+        assert "lidl" not in result.output.split("no rule (")[1]
+
+    def test_every_row_covered(self, run, statement, rules):
+        with open(rules, "a", encoding="utf-8") as handle:
+            handle.write("netflix,Subscriptions,Netflix\n")
+        result = run("uncategorized", statement, "-c", "PLN", "--rules", rules)
+        assert result.exit_code == 0 and "every row matches a rule" in result.output
+
+    def test_top_lists_fewer(self, run, statement):
+        result = run("uncategorized", statement, "-c", "PLN", "--top", "2")
+        assert "and 2 more (--top 4 lists them all)" in result.output
+
+    def test_write_starts_a_rules_file_and_adds_to_it(self, run, statement, tmp_path):
+        path = tmp_path / "mine.csv"
+        first = run("uncategorized", statement, "-c", "PLN", "--write", path)
+        assert first.exit_code == 0 and "added 4 rules to" in first.output
+        text = path.read_text(encoding="utf-8-sig")
+        path.write_text(text.replace("lidl sp. z o.o.,,", "lidl,Groceries,"), encoding="utf-8")
+        again = run("uncategorized", statement, "-c", "PLN", "--rules", path, "--write", path)
+        assert "mine.csv: 2 rows categorised, 3 matched no rule" in again.output
+        assert "3 rules have no category yet" in again.output
+        assert "already has a rule for each" in again.output
+
+    def test_reads_like_render(self, run, mixed):
+        hint = run("uncategorized", mixed, "-c", "PLN")
+        assert hint.exit_code == 2 and "--rate EUR=4.30" in hint.output
+
+
+class TestSeveralSources:
+    def test_render_draws_them_as_one(self, run, statement, budget, rules, tmp_path):
+        out = tmp_path / "both.png"
+        result = run("render", statement, budget, "-c", "PLN", "--rules", rules, "-o", out)
+        assert result.exit_code == 0 and out.exists()
+        assert "income 11" in result.output.replace("\u202f", "")    # 5000 + 6000
+
+    def test_check_counts_every_row(self, run, statement, budget):
+        result = run("check", statement, budget, "-c", "PLN")
+        assert result.exit_code == 0 and "10 rows look fine" in result.output
+
+    def test_an_error_names_its_file(self, run, statement, tmp_path):
+        bad = tmp_path / "bad.csv"
+        bad.write_text("category,label\nFood,Lidl\n", encoding="utf-8")
+        result = run("check", statement, bad)
+        assert result.exit_code == 2 and "bad.csv" in result.output
+

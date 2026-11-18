@@ -16,7 +16,7 @@ installed from a clone, with `uv sync` or `pip install -e .`.
 
 ```bash
 uv sync                                  # or: pip install -e ".[all]"
-uv run pytest                            # 460 tests, ~9s
+uv run pytest                            # 552 tests, ~9s
 uv run ruff check src tests
 uv run python usage.py                   # smoke check; writes examples/output/usage-*.png
 uv run vme render examples/budget-august.csv -c PLN -o /tmp/a.png
@@ -47,6 +47,7 @@ Around that chain sit modules that know nothing about each other:
 | `models.py` | `Expense` (frozen, `Decimal`, direction in `kind`), `Node`/`Link`/`SankeyGraph` |
 | `currencies.py` | ~50 currencies' formatting rules; rate files (JSON/CSV) |
 | `tools.py` | amount/date/direction parsing, duck-typed row coercion |
+| `rules.py` | categorisation rules: reading them, applying them, suggesting new ones |
 | `io/` | one self-registering module per input format |
 | `sankey.py` | rows → `SankeyGraph`: folding into "Other", the savings branch |
 | `plotting.py` | layout (renderer-independent) + matplotlib and plotly backends |
@@ -54,8 +55,9 @@ Around that chain sit modules that know nothing about each other:
 | `theme.py` | light/dark palettes |
 | `cli.py` | the click commands |
 
-Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → `convert` → period filter
-→ `build_graph` → `layout_graph` → a backend. Anything that changes totals must run before
+Data path, in order: `io.load` → `coerce_row` → rules → `apply_sign_convention` → `convert` →
+period filter → `build_graph` → `layout_graph` → a backend. The rules and the sign convention run
+file by file, inside `Calculator._prepare`. Anything that changes totals must run before
 `footer()` reads them — a bug once had the footer summing pre-conversion amounts.
 
 ## Things that are easy to get wrong
@@ -77,6 +79,16 @@ Data path, in order: `io.load` → `coerce_row` → `apply_sign_convention` → 
   and clears `_prepared`, while `_prepare` writes `_rows`. Preparing already-prepared rows again
   would let the `auto` sign decision see only the new ones. A subtitle vme wrote itself
   (`_made_subtitle`) is rewritten on every prepare; one the caller set is kept.
+- **Each file decides its own sign convention.** `_starts` marks where each file's rows begin in
+  `_source` (`add_file` adds a boundary; `append_rows` joins the last file). Deciding once over
+  every file would read a plain expense list as income next to a bank statement.
+- **Rules look at the label and the note, never the category.** A short match such as `car`
+  would otherwise catch every row an OFX file calls "Card payments". A rule with an empty
+  category does nothing: `vme uncategorized --write` writes such rules for the user to fill in,
+  and the payee stays listed until they do.
+- **`_prepare` carries `decided_by` alongside the rows** — the rule behind each row, or `None` —
+  so `rule_report()` can list the rows no rule matched, converted and period-filtered.
+  It relies on `apply_sign_convention` and `convert` returning one row per row, in order.
 - **Constructing `Expense` directly defaults to `EXPENSE`,** not `AUTO`. Income must say `kind="income"`
   (any case). Any other word raises `ValueError` — it used to become an expense silently.
   `Expense` also runs its currency through `normalise_code`, as the loaders do, so `"€"` is `"EUR"`.
@@ -135,9 +147,10 @@ section, merge.
 - Python 3.10 or newer (3.9 was dropped in 0.2.0). `typing.Optional`/`Dict`/`List` stay from the
   3.9 days, and ruff's PEP 604/585 rules stay off until the code moves over in one change. Every
   `zip()` says `strict=` (ruff B905): `True` where the inputs are one-to-one by construction.
-- **Options for reading a file live in `cli.INPUT_OPTIONS`**, applied with `@input_options` to
-  `render`, `summary` and `check` and turned into a `Visualizer` by `_read`. Add a new one there,
-  not to one command: a hint printed by any command (`--rate EUR=4.30`) has to work on all three.
+- **Options for reading files live in `cli.INPUT_OPTIONS`**, applied with `@input_options` to
+  `render`, `summary`, `check` and `uncategorized`, which all take `SOURCE...`, and turned into a
+  `Visualizer` by `_read`, one file at a time so an error names its file. Add a new option there,
+  not to one command: a hint printed by any command (`--rate EUR=4.30`) has to work on all of them.
 - Errors that a user can act on say what to do (`--rate EUR=4.30`, `pip install "vme-py[excel]"`).
   Loader errors name the file and line.
 - Palettes are validated for colour-blind separation and contrast against their own surface, and

@@ -10,6 +10,38 @@ file has a section for it, and that section becomes the GitHub Release notes.
 `tests/test_changelog.py` checks it, so a version bump without its section
 fails CI before it can be merged.
 
+## [0.3.0]
+
+Categorisation rules: a bank statement, sorted into your own budget categories.
+Nothing changes without them: every chart vme drew before is drawn the same.
+
+### Added
+
+- **A rules file gives the payees of a bank statement a category** (#25). A
+  bank export says who was paid, not what for: OFX rows were grouped by how
+  they were paid ("Card payments") and a CSV statement drew one category per
+  line. Each rule names text to look for in a row's description or note, the
+  category to give it and, optionally, a cleaner label (`lidl,Groceries,Lidl`).
+  The first rule that matches wins. Case, accents and extra spaces do not
+  matter, `|` separates alternatives and `re:` starts a regular expression.
+  The category `skip` drops a row, such as a transfer to your own savings.
+  Rules are CSV or JSON, passed with `--rules` to `render`, `summary`, `check`
+  and `uncategorized`, or as `Visualizer(..., rules=...)`, where a dict such as
+  `{"lidl": "Groceries"}` works too. They run before the sign convention, so a
+  row they call "Salary" is income even in a file with no signs.
+- **`vme uncategorized` lists the payees no rule covers yet** (#26), biggest
+  first, grouped by the words that name them: a dozen card payments at one
+  shop are one line, whatever the dates and branch numbers. `--write
+  rules.csv` adds them to a rules file with the category left for you to fill
+  in, and running it again adds only what is new. `vme check --rules` says how
+  many rows the rules categorised and skipped, and which rules matched nothing.
+- **Several files draw as one chart** (#27): `vme render checking.ofx
+  credit-card.csv`. Each file decides for itself what a negative amount means,
+  so a bank statement and a plain list of expenses can be drawn together. In
+  Python, `Visualizer.from_files()` and `add_file()`.
+- **A sample statement and rules file,** `examples/statement-september.csv` and
+  `examples/rules.csv`, drawn before and after in the README.
+
 ## [0.2.3]
 
 Rows added to a `Visualizer` after it has drawn a chart are now drawn too.
@@ -312,6 +344,7 @@ the proof of concept (#1) and the packaging and release automation around it
 - Rows in a currency with no rate are refused rather than guessed at: the
   error names each missing currency and the flag that supplies its rate.
 
+[0.3.0]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.3.0
 [0.2.3]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.3
 [0.2.2]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.2
 [0.2.1]: https://github.com/oskar-j/visualize-my-expenses/releases/tag/v0.2.1
